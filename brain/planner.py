@@ -8,9 +8,12 @@ from skills.weather import get_weather, TOOL_SCHEMA as WEATHER_SCHEMA
 from brain.mind import Mind
 from brain.trust import trust_level
 from brain.emotion import compute_emotion
+from brain.memory import extract_name
+from brain.permission import check_permission
 
 MODEL = "gemini-3.6-flash"
 
+_GUEST_KEY = "guest"
 
 _TOOL_USE_INSTRUCTION = (
     "Use the weather tool when asked about weather. When the user "
@@ -20,15 +23,15 @@ _TOOL_USE_INSTRUCTION = (
     "conversational details that don't need to persist."
 )
 
+_ASK_NAME_INSTRUCTION = (
+    "You don't know who you're talking to yet. Naturally ask their "
+    "name early in this reply — don't make it the whole reply, just "
+    "work it in. Once they answer, you'll recognize them in future "
+    "conversations."
+)
+
 mind = Mind()
 mind.load()
-
-# NOTE: SYSTEM_INSTRUCTION is no longer built once at import time.
-# Trust/emotion change per-turn based on memory state, so the system
-# prompt now has to be assembled per-turn too (see Planner.respond).
-# Static identity/personality/values/communication YAML is still only
-# parsed once (Mind.load() above) — only the [CURRENT STATE] section
-# and the by_trust tone line change turn to turn.
 
 REMEMBER_SCHEMA = {
     "type": "function",
@@ -41,14 +44,8 @@ REMEMBER_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "key": {
-                "type": "string",
-                "description": "Short label, e.g. 'nickname', 'name', 'project'",
-            },
-            "value": {
-                "type": "string",
-                "description": "The fact to remember",
-            },
+            "key": {"type": "string", "description": "Short label, e.g. 'nickname', 'name', 'project'"},
+            "value": {"type": "string", "description": "The fact to remember"},
         },
         "required": ["key", "value"],
     },
@@ -60,12 +57,9 @@ _INTERACTION_KEY = "_last_interaction_id"
 
 
 def load_env_file(path: str | None = None) -> dict[str, str]:
-    """Loads KEY=VALUE pairs from a .env file into os.environ, without
-    overwriting variables already set in the real environment."""
     env_path = Path(path or os.path.join(os.path.dirname(__file__), "..", ".env"))
     if not env_path.exists():
         return {}
-
     values: dict[str, str] = {}
     for line in env_path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
@@ -81,20 +75,30 @@ def load_env_file(path: str | None = None) -> dict[str, str]:
 
 
 class PlannerFallbackError(RuntimeError):
-    """Raised when the planner is asked to use Gemini without a configured key."""
+    pass
 
 
 class Planner:
+    """
+    NOTE on identity: self.memory is now the multi-user Memory store
+    (memory.py), not a single user's data. self.current_user is a
+    UserMemory view for whoever we currently believe we're talking
+    to — resolved by self-declared name only (extract_name() heuristic,
+    or the model's own remember_fact call). This is NOT verified
+    identity — no voice or face recognition. Anyone can claim to be
+    anyone. That's a known, deliberate limitation for this phase, not
+    an oversight — voice/face verification is roadmap, post-hardware.
+    """
+
     def __init__(self, memory):
         load_env_file()
         api_key = os.environ.get("GEMINI_API_KEY")
-        self.memory = memory
+        self.memory = memory  # multi-user Memory
+        self.current_user = None  # UserMemory, set once identified
+        self._asked_name_this_session = False
         self.uses_fallback = not api_key
         self.client = None
         self.skills = {}
-        # Set each turn in respond(); exposed so a UI/demo script can
-        # read planner.last_trust / planner.last_emotion after a turn
-        # to show "here's what the mind knows" on screen.
         self.last_trust = "medium"
         self.last_emotion = "neutral"
 
@@ -108,38 +112,63 @@ class Planner:
         }
 
     def _remember_fact(self, key: str, value: str) -> dict:
-        self.memory.remember_fact(key, value)
-        return {"ok": True, "saved": {key: value}}
+        if key.lower() in ("name", "nickname") and self.current_user is None:
+            self._set_user(value)
+        if self.current_user is not None:
+            self.current_user.remember_fact(key, value)
+            return {"ok": True, "saved": {key: value}}
+        return {"ok": False, "error": "no current user resolved yet"}
+
+    def _set_user(self, display_name: str):
+        self.current_user = self.memory.get_user(display_name)
+        self._asked_name_this_session = False
+
+    def _resolve_speaker(self, user_text: str):
+        """Self-declared identity only — see class docstring. Falls
+        back to a shared 'guest' bucket (always low trust, by design)
+        until a name is captured."""
+        if self.current_user is not None:
+            return
+
+        name = extract_name(user_text)
+        if name:
+            self._set_user(name)
+        else:
+            self.current_user = self.memory.get_user(_GUEST_KEY)
 
     def _build_system_instruction(self) -> str:
-        trust = trust_level(self.memory)
-        emotion = compute_emotion(self.memory, trust)
+        trust = trust_level(self.current_user)
+        emotion = compute_emotion(self.current_user, trust)
         self.last_trust = trust
         self.last_emotion = emotion
 
         system = mind.as_prompt(trust=trust, emotion=emotion)
         system += "\n\n[TOOL USE]\n" + _TOOL_USE_INSTRUCTION
-        if self.memory.facts_as_text():
-            system += "\n\n" + self.memory.facts_as_text()
+
+        is_unidentified = self.current_user.key == _GUEST_KEY
+        if is_unidentified and not self._asked_name_this_session:
+            system += "\n\n[IDENTITY]\n" + _ASK_NAME_INSTRUCTION
+            self._asked_name_this_session = True
+
+        if self.current_user.facts_as_text():
+            system += "\n\n" + self.current_user.facts_as_text()
         return system
 
     def respond(self, user_text: str) -> str:
-        self.memory.add_turn("user", user_text)
+        self._resolve_speaker(user_text)
+        self.current_user.add_turn("user", user_text)
 
         if self.uses_fallback:
             fallback = (
                 "Gemini is not configured right now, so I can only provide a "
                 "basic fallback response. Set GEMINI_API_KEY to enable full AI replies."
             )
-            self.memory.add_turn("assistant", fallback)
+            self.current_user.add_turn("assistant", fallback)
             return fallback
 
-        # Trust/emotion computed AFTER add_turn so this turn's message
-        # is part of what emotion.py reads, but the score/state used
-        # for tone reflects the user's state walking into this reply.
         system = self._build_system_instruction()
 
-        prev_id = self.memory.facts.get(_INTERACTION_KEY)
+        prev_id = self.current_user.facts.get(_INTERACTION_KEY)
         kwargs = dict(
             model=MODEL,
             input=user_text,
@@ -154,7 +183,7 @@ class Planner:
         t1 = time.monotonic()
         print(f"[timing] first call: {t1 - t0:.2f}s, stop reason: "
               f"{'tool_use' if any(s.type == 'function_call' for s in interaction.steps) else 'text'}")
-        print(f"[state] trust={self.last_trust} emotion={self.last_emotion}")
+        print(f"[state] user={self.current_user.key} trust={self.last_trust} emotion={self.last_emotion}")
         call_count = 1
 
         while True:
@@ -164,12 +193,30 @@ class Planner:
 
             results_input = []
             for step in fc_steps:
-                skill_fn = self.skills.get(step.name)
-                result = (
-                    skill_fn(**step.arguments)
-                    if skill_fn
-                    else {"ok": False, "error": f"Unknown skill '{step.name}'"}
-                )
+                # Permission check happens here, at the point of
+                # execution, independent of trust_level computed
+                # above. This is the actual enforcement of "trust !=
+                # permission" — see brain/permission.py docstring.
+                # No confirmed=True path wired yet: any skill in the
+                # DEVICE_CONTROL/SENSITIVE_ACTION/COMMAND_ACTION tiers
+                # will always be denied for now, since there's no UX
+                # for the model to collect and replay a confirmation
+                # across turns. That's a real gap, not silently
+                # papered over — see note below.
+                perm = check_permission(step.name)
+                if not perm.allowed:
+                    result = {
+                        "ok": False,
+                        "error": perm.reason,
+                        "requires_confirmation": perm.requires_confirmation,
+                    }
+                else:
+                    skill_fn = self.skills.get(step.name)
+                    result = (
+                        skill_fn(**step.arguments)
+                        if skill_fn
+                        else {"ok": False, "error": f"Unknown skill '{step.name}'"}
+                    )
                 results_input.append({
                     "type": "function_result",
                     "name": step.name,
@@ -192,6 +239,6 @@ class Planner:
         print(f"[timing] total: {time.monotonic() - t0:.2f}s across {call_count} API call(s)")
 
         final_text = interaction.output_text
-        self.memory.remember_fact(_INTERACTION_KEY, interaction.id)
-        self.memory.add_turn("assistant", final_text)
+        self.current_user.remember_fact(_INTERACTION_KEY, interaction.id)
+        self.current_user.add_turn("assistant", final_text)
         return final_text
