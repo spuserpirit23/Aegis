@@ -1,0 +1,117 @@
+[gd_scene format=3 uid="uid://41m5b3bhujw"]
+
+[ext_resource type="Script" uid="uid://bxw6iepri6f1p" path="res://scripts/aegis_face.gd" id="1_aegisface"]
+[ext_resource type="Script" uid="uid://cc56dq1vaml3r" path="res://scripts/expression_controller.gd" id="2_expression"]
+[ext_resource type="Script" uid="uid://dw6hm24aq6604" path="res://scripts/gesture_controller.gd" id="3_gesture"]
+[ext_resource type="Script" uid="uid://ciy47v60113my" path="res://scripts/speaking_controller.gd" id="4_speaking"]
+
+[sub_resource type="Animation" id="Animation_idle"]
+resource_name = "idle"
+length = 2.0
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("GestureRig/FaceRig:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 1, 2),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector2(0, 0), Vector2(0, -4), Vector2(0, 0)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_default"]
+_data = {
+&"idle": SubResource("Animation_idle")
+}
+
+[node name="AegisFace" type="Node2D" unique_id=237816444]
+script = ExtResource("1_aegisface")
+
+[node name="ExpressionController" type="Node" parent="." unique_id=1513125361]
+script = ExtResource("2_expression")
+
+[node name="GestureController" type="Node" parent="." unique_id=1635456390]
+script = ExtResource("3_gesture")
+
+[node name="SpeakingController" type="Node" parent="." unique_id=1738185502]
+script = ExtResource("4_speaking")
+
+[node name="GestureRig" type="Node2D" parent="." unique_id=1817865998]
+
+[node name="FaceRig" type="Node2D" parent="GestureRig" unique_id=1890861398]
+
+[node name="CharacterArtwork" type="Node2D" parent="GestureRig/FaceRig" unique_id=205159209]
+
+[node name="FaceBase" type="Polygon2D" parent="GestureRig/FaceRig/CharacterArtwork" unique_id=1476360853]
+color = Color(0.96, 0.78, 0.68, 1)
+polygon = PackedVector2Array(-76, -96, 76, -96, 88, -16, 60, 88, 0, 116, -60, 88, -88, -16)
+
+[node name="NeckShadow" type="Polygon2D" parent="GestureRig/FaceRig/CharacterArtwork" unique_id=822879556]
+position = Vector2(0, 88)
+color = Color(0.75, 0.48, 0.45, 0.45)
+polygon = PackedVector2Array(-26, 0, 26, 0, 20, 36, -20, 36)
+
+[node name="Hair" type="Node2D" parent="GestureRig/FaceRig" unique_id=695089814]
+
+[node name="HairMass" type="Polygon2D" parent="GestureRig/FaceRig/Hair" unique_id=626802741]
+color = Color(0.11, 0.12, 0.18, 1)
+polygon = PackedVector2Array(-96, -88, -56, -140, 0, -156, 58, -140, 100, -84, 84, -18, 48, -92, 10, -44, -8, -100, -42, -42, -78, -88, -92, -12)
+
+[node name="Eyes" type="Node2D" parent="GestureRig/FaceRig" unique_id=316476049]
+
+[node name="LeftEye" type="Polygon2D" parent="GestureRig/FaceRig/Eyes" unique_id=1813633125]
+position = Vector2(-34, -18)
+color = Color(0.13, 0.32, 0.62, 1)
+polygon = PackedVector2Array(-18, -8, 18, -8, 22, 0, 16, 10, -16, 10, -22, 0)
+
+[node name="RightEye" type="Polygon2D" parent="GestureRig/FaceRig/Eyes" unique_id=216674779]
+position = Vector2(34, -18)
+color = Color(0.13, 0.32, 0.62, 1)
+polygon = PackedVector2Array(-18, -8, 18, -8, 22, 0, 16, 10, -16, 10, -22, 0)
+
+[node name="EyeHighlights" type="Node2D" parent="GestureRig/FaceRig/Eyes" unique_id=1497633458]
+
+[node name="LeftHighlight" type="Polygon2D" parent="GestureRig/FaceRig/Eyes/EyeHighlights" unique_id=567716257]
+position = Vector2(-42, -22)
+color = Color(1, 1, 1, 0.8)
+polygon = PackedVector2Array(-4, -4, 4, -4, 4, 4, -4, 4)
+
+[node name="RightHighlight" type="Polygon2D" parent="GestureRig/FaceRig/Eyes/EyeHighlights" unique_id=757019936]
+position = Vector2(26, -22)
+color = Color(1, 1, 1, 0.8)
+polygon = PackedVector2Array(-4, -4, 4, -4, 4, 4, -4, 4)
+
+[node name="Eyebrows" type="Node2D" parent="GestureRig/FaceRig" unique_id=1018223818]
+
+[node name="LeftEyebrow" type="Line2D" parent="GestureRig/FaceRig/Eyebrows" unique_id=1033199489]
+position = Vector2(-34, -42)
+points = PackedVector2Array(-20, 0, 18, -6)
+width = 4.0
+default_color = Color(0.07, 0.07, 0.1, 1)
+
+[node name="RightEyebrow" type="Line2D" parent="GestureRig/FaceRig/Eyebrows" unique_id=829233842]
+position = Vector2(34, -42)
+points = PackedVector2Array(-18, -6, 20, 0)
+width = 4.0
+default_color = Color(0.07, 0.07, 0.1, 1)
+
+[node name="Mouth" type="Node2D" parent="GestureRig/FaceRig" unique_id=237378453]
+
+[node name="MouthLine" type="Line2D" parent="GestureRig/FaceRig/Mouth" unique_id=295329655]
+position = Vector2(0, 42)
+points = PackedVector2Array(-18, 0, 0, 6, 18, 0)
+width = 3.0
+default_color = Color(0.45, 0.12, 0.16, 1)
+
+[node name="FacialEffects" type="Node2D" parent="GestureRig/FaceRig" unique_id=1772059927]
+
+[node name="EmotionGlow" type="Polygon2D" parent="GestureRig/FaceRig/FacialEffects" unique_id=1777506519]
+color = Color(0.35, 0.78, 1, 0.08)
+polygon = PackedVector2Array(-104, -116, 104, -116, 118, 114, -118, 114)
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=75514410]
+libraries/ = SubResource("AnimationLibrary_default")
+autoplay = &"idle"

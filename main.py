@@ -1,12 +1,22 @@
+import sys
+import shutil
+import subprocess
+import threading
+from pathlib import Path
+
 from brain.memory import Memory
 from brain.planner import Planner
 from voice.stt import listen
 from voice.tts import speak
 
 
-def main():
+def build_planner() -> Planner:
     memory = Memory(path="memory.json")
-    planner = Planner(memory)
+    return Planner(memory)
+
+
+def main():
+    planner = build_planner()
 
     print("Brain online (voice mode).")
     print("Press Enter to talk, or type a message instead. Type 'exit' to quit.\n")
@@ -35,5 +45,61 @@ def main():
         speak(reply)
 
 
+def ui_main():
+    from aegis_bridge import create_server
+
+    project_dir = Path(__file__).resolve().parent
+    server = create_server(build_planner())
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print("Aegis bridge online at http://127.0.0.1:8765")
+
+    godot_exe = _find_godot()
+    if godot_exe is None:
+        print("Godot was not found. Open godot_ui/project.godot manually.")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        return
+
+    try:
+        subprocess.run([godot_exe, "--path", str(project_dir / "godot_ui")], check=False)
+    finally:
+        server.shutdown()
+
+
+def _find_godot() -> str | None:
+    found = shutil.which("godot") or shutil.which("godot4")
+    if found:
+        return found
+
+    candidates = (
+        Path.home() / "AppData/Local/Godot/godot.exe",
+        Path.home() / "AppData/Local/Programs/Godot/godot.exe",
+        Path("C:/Program Files/Godot/godot.exe"),
+        Path("C:/Program Files (x86)/Godot/godot.exe"),
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    downloads = Path.home() / "Downloads"
+    downloaded_builds = sorted(
+        downloads.glob("Godot_v4.8*.exe/Godot_v4.8*.exe"),
+        reverse=True,
+    )
+    downloaded_builds += sorted(
+        downloads.glob("Godot_v4*.exe/Godot_v4*.exe"),
+        reverse=True,
+    )
+    for candidate in downloaded_builds:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 if __name__ == "__main__":
-    main()
+    if "--cli" in sys.argv:
+        main()
+    else:
+        ui_main()

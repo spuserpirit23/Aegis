@@ -1,0 +1,10 @@
+78098b89c88a74ebe8c20117b8754620
+::res://::1787204161
+::res://runtime/::1787199446
+::res://scenes/::1787196908
+AegisFace.tscn::PackedScene::61468604725655840::1787196908::0::1::::<><><>0<>0<><>::uid://bxw6iepri6f1p::::res://scripts/aegis_face.gd<>uid://cc56dq1vaml3r::::res://scripts/expression_controller.gd<>uid://dw6hm24aq6604::::res://scripts/gesture_controller.gd<>uid://ciy47v60113my::::res://scripts/speaking_controller.gd
+::res://scripts/::1787199111
+aegis_face.gd::GDScript::4048077145133945327::1787201486::0::1::::AegisFace<>Node2D<><>0<>0<><>::
+expression_controller.gd::GDScript::4977038852934681589::1787196739::0::1::::AegisExpressionController<>Node<><>0<>0<><>::
+gesture_controller.gd::GDScript::8767860232920511139::1787194940::0::1::::AegisGestureController<>Node<><>0<>0<><>::
+speaking_controller.gd::GDScript::5385716272834054896::1787197029::0::1::::AegisSpeakingController<>Node<><>0<>0<><>::

@@ -1,9 +1,9 @@
-import os
 import subprocess
 import sys
+from pathlib import Path
 
 if __name__ == "__main__":
-    py_exe = r"C:\Users\ramak\AppData\Local\Python\pythoncore-3.11-64\python.exe"
-    if not os.path.exists(py_exe):
-        py_exe = sys.executable
-    subprocess.run([py_exe, "main.py"], check=False)
+    project_dir = Path(__file__).resolve().parent
+    venv_python = project_dir / ".venv" / "Scripts" / "python.exe"
+    py_exe = str(venv_python) if venv_python.exists() else sys.executable
+    subprocess.run([py_exe, str(project_dir / "main.py")], cwd=project_dir, check=False)

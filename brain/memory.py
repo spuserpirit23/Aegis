@@ -2,6 +2,8 @@ import json
 import re
 from pathlib import Path
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 _LEGACY_BUCKET = "_legacy"
 
 _NAME_PATTERNS = [
@@ -87,7 +89,12 @@ class Memory:
     view via get_user(name) for whoever's currently talking."""
 
     def __init__(self, path: str = "memory.json", max_turns: int = 20):
-        self.path = Path(path)
+        requested_path = Path(path)
+        self.path = (
+            requested_path
+            if requested_path.is_absolute()
+            else _PROJECT_ROOT / requested_path
+        )
         self.max_turns = max_turns
         self.data = {"users": {}, "last_user": None}
         self._load()

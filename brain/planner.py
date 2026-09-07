@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import time
 from pathlib import Path
 from google import genai
@@ -54,6 +55,11 @@ REMEMBER_SCHEMA = {
 TOOLS = [WEATHER_SCHEMA, REMEMBER_SCHEMA]
 
 _INTERACTION_KEY = "_last_interaction_id"
+
+_EXPLICIT_FACT_PATTERNS = (
+    re.compile(r"\bmy\s+([a-z][a-z0-9 _-]{1,30})\s+is\s+(.+)$", re.IGNORECASE),
+    re.compile(r"\bremember\s+(?:that\s+)?my\s+([a-z][a-z0-9 _-]{1,30})\s+is\s+(.+)$", re.IGNORECASE),
+)
 
 
 def load_env_file(path: str | None = None) -> dict[str, str]:
@@ -127,14 +133,26 @@ class Planner:
         """Self-declared identity only — see class docstring. Falls
         back to a shared 'guest' bucket (always low trust, by design)
         until a name is captured."""
-        if self.current_user is not None:
-            return
-
         name = extract_name(user_text)
-        if name:
+        if name and (
+            self.current_user is None
+            or self.current_user.key == _GUEST_KEY
+            or self.current_user.key != name.strip().lower()
+        ):
             self._set_user(name)
-        else:
+        elif self.current_user is None:
             self.current_user = self.memory.get_user(_GUEST_KEY)
+
+    def _save_explicit_facts(self, user_text: str) -> None:
+        for pattern in _EXPLICIT_FACT_PATTERNS:
+            match = pattern.search(user_text.strip().rstrip(".!?"))
+            if not match:
+                continue
+            key = re.sub(r"\s+", "_", match.group(1).strip().lower())
+            value = match.group(2).strip()
+            if key and value and self.current_user is not None:
+                self.current_user.remember_fact(key, value)
+            return
 
     def _build_system_instruction(self) -> str:
         trust = trust_level(self.current_user)
@@ -157,6 +175,7 @@ class Planner:
     def respond(self, user_text: str) -> str:
         self._resolve_speaker(user_text)
         self.current_user.add_turn("user", user_text)
+        self._save_explicit_facts(user_text)
 
         if self.uses_fallback:
             fallback = (
