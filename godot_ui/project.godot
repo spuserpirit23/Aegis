@@ -11,9 +11,19 @@ config_version=5
 [application]
 
 config/name="Aegis Visual Interface"
-run/main_scene="res://scenes/AegisFace.tscn"
+run/main_scene="res://scenes/AegisMainUI.tscn"
 config/features=PackedStringArray("4.7")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/mode=0
+window/size/resizable=true
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.031, 0.027, 0.043, 1)

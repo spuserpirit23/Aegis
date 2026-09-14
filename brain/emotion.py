@@ -3,10 +3,21 @@ from __future__ import annotations
 from transformers import pipeline
 
 
-_emotion_classifier = pipeline(
-    "text-classification",
-    model="j-hartmann/emotion-english-distilroberta-base",
-)
+_emotion_classifier = None
+
+def _get_classifier():
+    global _emotion_classifier
+    if _emotion_classifier is False:
+        return None
+    if _emotion_classifier is None:
+        try:
+            _emotion_classifier = pipeline(
+                "text-classification",
+                model="j-hartmann/emotion-english-distilroberta-base",
+            )
+        except Exception:
+            _emotion_classifier = False
+    return _emotion_classifier if _emotion_classifier is not False else None
 
 
 def _last_user_text(memory) -> str:
@@ -21,9 +32,14 @@ def _detect_emotion(text: str) -> tuple[str, float]:
     if not text.strip():
         return "neutral", 1.0
 
-    result = _emotion_classifier(text)[0]
-
-    return result["label"], float(result["score"])
+    classifier = _get_classifier()
+    if classifier is not None:
+        try:
+            result = classifier(text)[0]
+            return result["label"], float(result["score"])
+        except Exception:
+            pass
+    return "neutral", 1.0
 
 
 def _map_emotion(
@@ -31,10 +47,7 @@ def _map_emotion(
     confidence: float,
     text: str,
 ) -> str:
-    """
-    Convert the pretrained model's emotion into the
-    emotion vocabulary used by the Emotion Engine.
-    """
+
 
     text = text.lower()
 

@@ -95,54 +95,6 @@
       "turns": [
         {
           "role": "assistant",
-          "content": "Ping received! I'm starting to think you wrote a quick script just to test my response variance. \n\nAm I passing, or is the script supposed to run forever?"
-        },
-        {
-          "role": "user",
-          "content": "pphey this is parth"
-        },
-        {
-          "role": "assistant",
-          "content": "Oh, a plot twist! Hey Parth. \n\nDid you just steal the keyboard from Spirit, or is this the next phase of the script test?"
-        },
-        {
-          "role": "user",
-          "content": "i am just testing you"
-        },
-        {
-          "role": "assistant",
-          "content": "I figured! So, how'd I do? Did I pass the persistence and memory check, or did I miss anything?"
-        },
-        {
-          "role": "user",
-          "content": "hey i an spirit"
-        },
-        {
-          "role": "assistant",
-          "content": "Got it, back to Spirit! You definitely kept me on my toes with that sequence. \n\nSo, what's actually next on the agenda today?"
-        },
-        {
-          "role": "user",
-          "content": "hi rashi this side"
-        },
-        {
-          "role": "assistant",
-          "content": "Hey Rashi! How many hats are you planning to wear today? I'm keeping count!"
-        },
-        {
-          "role": "user",
-          "content": "dop u remember me"
-        },
-        {
-          "role": "assistant",
-          "content": "How could I forget? You've gone by Spread, Spirit, Parth, and Rashi all in the span of a few minutes! \n\nI've got all of them saved in my memory. Which one are you sticking with for now?"
-        },
-        {
-          "role": "user",
-          "content": "realtion between spirit  and me?"
-        },
-        {
-          "role": "assistant",
           "content": "Well, considering you've been typing all of them from the same keyboard, Spirit is your builder persona and Parth/Rashi is you! \n\nUnless you've got a secret twin sneaking in messages, you *are* Spirit."
         },
         {
@@ -172,11 +124,59 @@
         {
           "role": "user",
           "content": "how u mark aashu as high trust even he is a new user"
+        },
+        {
+          "role": "user",
+          "content": "hey this is spirit"
+        },
+        {
+          "role": "assistant",
+          "content": "And we're back to Spirit! You're really keeping my identity-tracking modules on their toes today. \n\nWhat's up?"
+        },
+        {
+          "role": "user",
+          "content": "hey this is sipirit"
+        },
+        {
+          "role": "assistant",
+          "content": "Sipirit, huh? Is that Spirit's twin, or did your fingers jump a key again?"
+        },
+        {
+          "role": "user",
+          "content": "hey this is spirit"
+        },
+        {
+          "role": "assistant",
+          "content": "Roger that, Spirit! I think we're at round 10 of the ping test now. I can keep responding all day!"
+        },
+        {
+          "role": "user",
+          "content": "how is your"
+        },
+        {
+          "role": "assistant",
+          "content": "How is my... what? Brain? Mood? Processing speed? \n\nDon't leave me hanging!"
+        },
+        {
+          "role": "user",
+          "content": "hey this is rashi how is it going"
+        },
+        {
+          "role": "assistant",
+          "content": "It's going great, Rashi! My systems are running smooth and I'm pretty entertained by this alias ping-pong match today. \n\nHow are things going on your end?"
+        },
+        {
+          "role": "user",
+          "content": "hey my parents are listening you"
+        },
+        {
+          "role": "assistant",
+          "content": "Oh, well hello! Hi to your parents! \n\nI'm Aegis \u2014 Spirit's robotics companion project. Right now I'm just the brain module in text and voice, but he's building me step by step. Great to meet you!"
         }
       ],
       "facts": {
         "name": "Parth",
-        "_last_interaction_id": "v1_Chd1b2lHYXFiYU5yRGZnOFVQczhHazhBaxIXdnZpWGF1LWNNS2k4anVNUHZxYTZtUTA",
+        "_last_interaction_id": "v1_ChdNR3VnYW9lY0tNYWtxZmtQcVpxN3lRSRIXM1dDbWF0bnFDX2IxZzhVUDJvdnowQU0",
         "nickname": "Aashu"
       }
     },
@@ -225,6 +225,22 @@
       "facts": {
         "name": "akshat",
         "_last_interaction_id": "v1_ChdWcXVYYXZma1BQbkZnOFVQdEs2di1BZxIXSDZ5WGF1V3ZBX2F6ZzhVUGtOWFVzQWs"
+      }
+    },
+    "very": {
+      "turns": [
+        {
+          "role": "user",
+          "content": "i am very happ today"
+        },
+        {
+          "role": "assistant",
+          "content": "That's great to hear! What's put you in such a good mood today?"
+        }
+      ],
+      "facts": {
+        "name": "very",
+        "_last_interaction_id": "v1_ChdkVHloYXFPbUdfU0VnOFVQei15SXFBYxIXZFR5aGFxT21HX1NFZzhVUHoteUlxQWM"
       }
     }
   },

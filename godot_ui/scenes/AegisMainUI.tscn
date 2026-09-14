@@ -1,0 +1,706 @@
+[gd_scene load_steps=18 format=3 uid="uid://d4e7b8c9a1f2e"]
+
+[ext_resource type="Script" path="res://scripts/aegis_main_ui.gd" id="1_main"]
+[ext_resource type="Texture2D" path="res://assets/icon_logo.png" id="2_logo"]
+[ext_resource type="Texture2D" path="res://assets/character_avatar.png" id="3_avatar"]
+[ext_resource type="Texture2D" path="res://assets/icon_conversation.png" id="5_conv"]
+[ext_resource type="Texture2D" path="res://assets/icon_memory.png" id="6_mem"]
+[ext_resource type="Texture2D" path="res://assets/icon_trust.png" id="7_trust"]
+[ext_resource type="Texture2D" path="res://assets/icon_emotion.png" id="8_emot"]
+[ext_resource type="Texture2D" path="res://assets/icon_analytics.png" id="9_analy"]
+[ext_resource type="Texture2D" path="res://assets/icon_integrations.png" id="10_integ"]
+[ext_resource type="Texture2D" path="res://assets/icon_tools.png" id="11_tools"]
+[ext_resource type="Texture2D" path="res://assets/icon_settings.png" id="12_sett"]
+[ext_resource type="Texture2D" path="res://assets/icon_mic.png" id="13_mic"]
+[ext_resource type="Texture2D" path="res://assets/icon_info.png" id="14_info"]
+[ext_resource type="Texture2D" path="res://assets/icon_inst_chat.png" id="15_ichat"]
+[ext_resource type="Texture2D" path="res://assets/icon_inst_plugins.png" id="16_iplug"]
+[ext_resource type="Texture2D" path="res://assets/icon_inst_shield.png" id="17_ishield"]
+[ext_resource type="Texture2D" path="res://assets/icon_inst_gear.png" id="18_igear"]
+[ext_resource type="Texture2D" path="res://assets/icon_inst_help.png" id="19_ihelp"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_captions"]
+bg_color = Color(0.035, 0.03, 0.055, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.38, 0.16, 0.6, 0.65)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+content_margin_left = 18.0
+content_margin_top = 12.0
+content_margin_right = 18.0
+content_margin_bottom = 12.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_input_box"]
+bg_color = Color(0.06, 0.05, 0.09, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.16, 0.46, 0.8)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 14.0
+content_margin_top = 8.0
+content_margin_right = 12.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_send_btn"]
+bg_color = Color(0.24, 0.11, 0.4, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.52, 0.26, 0.82, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 14.0
+content_margin_top = 6.0
+content_margin_right = 14.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_send_btn_hover"]
+bg_color = Color(0.36, 0.18, 0.6, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.75, 0.45, 1, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 14.0
+content_margin_top = 6.0
+content_margin_right = 14.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_instructions"]
+bg_color = Color(0.035, 0.03, 0.055, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.15, 0.48, 0.65)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+content_margin_left = 18.0
+content_margin_top = 16.0
+content_margin_right = 18.0
+content_margin_bottom = 16.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_status_box"]
+bg_color = Color(0.04, 0.035, 0.07, 0.8)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.22, 0.16, 0.32, 0.8)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_overlay"]
+bg_color = Color(0.05, 0.04, 0.08, 0.96)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.6, 0.3, 0.9, 0.9)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+content_margin_left = 20.0
+content_margin_top = 16.0
+content_margin_right = 20.0
+content_margin_bottom = 16.0
+
+[node name="AegisMainUI" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 1)
+
+[node name="LeftGlowBeam" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 162.0
+offset_right = 172.0
+grow_vertical = 2
+
+[node name="CenterContainer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="AvatarAnchor" type="Control" parent="CenterContainer"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -140.0
+offset_top = -145.0
+offset_right = 140.0
+offset_bottom = 225.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Avatar" type="TextureRect" parent="CenterContainer/AvatarAnchor"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_avatar")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="TopHeader" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 22.0
+offset_right = 300.0
+offset_bottom = 115.0
+grow_horizontal = 2
+theme_override_constants/separation = 4
+
+[node name="SystemStatus" type="Label" parent="TopHeader"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18, 0.85, 0.45, 1)
+theme_override_font_sizes/font_size = 9
+text = "● SYSTEM ONLINE ●"
+horizontal_alignment = 1
+
+[node name="WelcomeTitle" type="Label" parent="TopHeader"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 38
+text = "WELCOME"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="RichTextLabel" parent="TopHeader"]
+layout_mode = 2
+theme_override_colors/default_color = Color(0.68, 0.65, 0.76, 1)
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+text = "[center]H O W   C A N   I   [color=#c084fc]A S S I S T[/color]   Y O U   T O D A Y ?[/center]"
+fit_content = true
+
+[node name="LeftPanel" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = 20.0
+offset_right = 156.0
+offset_bottom = -16.0
+grow_vertical = 2
+
+[node name="BrandBox" type="HBoxContainer" parent="LeftPanel"]
+layout_mode = 0
+offset_right = 138.0
+offset_bottom = 44.0
+theme_override_constants/separation = 8
+
+[node name="Logo" type="TextureRect" parent="LeftPanel/BrandBox"]
+custom_minimum_size = Vector2(28, 32)
+layout_mode = 2
+texture = ExtResource("2_logo")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="TitleCol" type="VBoxContainer" parent="LeftPanel/BrandBox"]
+layout_mode = 2
+theme_override_constants/separation = 1
+
+[node name="AegisTitle" type="Label" parent="LeftPanel/BrandBox/TitleCol"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 17
+text = "A E G I S"
+
+[node name="SubTitle" type="Label" parent="LeftPanel/BrandBox/TitleCol"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.52, 0.65, 1)
+theme_override_font_sizes/font_size = 7
+text = "AI ASSISTANT SYSTEM"
+
+[node name="PluginsHeader" type="Label" parent="LeftPanel"]
+layout_mode = 0
+offset_top = 70.0
+offset_right = 138.0
+offset_bottom = 88.0
+theme_override_colors/font_color = Color(0.72, 0.35, 0.95, 1)
+theme_override_font_sizes/font_size = 11
+text = "PLUGINS"
+
+[node name="PluginsList" type="VBoxContainer" parent="LeftPanel"]
+layout_mode = 0
+offset_top = 96.0
+offset_right = 138.0
+offset_bottom = 530.0
+theme_override_constants/separation = 6
+
+[node name="BtnConversation" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "CONVERSATION"
+icon = ExtResource("5_conv")
+alignment = 0
+
+[node name="BtnMemory" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "MEMORY"
+icon = ExtResource("6_mem")
+alignment = 0
+
+[node name="BtnTrust" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "TRUST ENGINE"
+icon = ExtResource("7_trust")
+alignment = 0
+
+[node name="BtnEmotion" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "EMOTION ENGINE"
+icon = ExtResource("8_emot")
+alignment = 0
+
+[node name="BtnAnalytics" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "ANALYTICS"
+icon = ExtResource("9_analy")
+alignment = 0
+
+[node name="BtnIntegrations" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "INTEGRATIONS"
+icon = ExtResource("10_integ")
+alignment = 0
+
+[node name="BtnTools" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "TOOLS"
+icon = ExtResource("11_tools")
+alignment = 0
+
+[node name="BtnSettings" type="Button" parent="LeftPanel/PluginsList"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "SETTINGS"
+icon = ExtResource("12_sett")
+alignment = 0
+
+[node name="BottomStatus" type="PanelContainer" parent="LeftPanel"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -68.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_status_box")
+
+[node name="VBox" type="VBoxContainer" parent="LeftPanel/BottomStatus"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="OnlineLabel" type="Label" parent="LeftPanel/BottomStatus/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.18, 0.85, 0.45, 1)
+theme_override_font_sizes/font_size = 8
+text = "● SYSTEM ONLINE"
+
+[node name="ClockContainer" type="VBoxContainer" parent="LeftPanel/BottomStatus/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 1
+
+[node name="ClockLabel" type="Label" parent="LeftPanel/BottomStatus/VBox/ClockContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 10
+text = "10:30 AM"
+
+[node name="DateLabel" type="Label" parent="LeftPanel/BottomStatus/VBox/ClockContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.52, 0.65, 1)
+theme_override_font_sizes/font_size = 8
+text = "16 AUG 2026"
+
+[node name="RightPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -305.0
+offset_top = 40.0
+offset_right = -20.0
+offset_bottom = -215.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_instructions")
+
+[node name="VBox" type="VBoxContainer" parent="RightPanel"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="RightPanel/VBox"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="RightPanel/VBox/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.72, 0.35, 0.95, 1)
+theme_override_font_sizes/font_size = 11
+text = "INSTRUCTIONS"
+
+[node name="InfoIcon" type="TextureRect" parent="RightPanel/VBox/Header"]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+texture = ExtResource("14_info")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Card1" type="HBoxContainer" parent="RightPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="RightPanel/VBox/Card1"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 0
+texture = ExtResource("15_ichat")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Col" type="VBoxContainer" parent="RightPanel/VBox/Card1"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="Heading" type="Label" parent="RightPanel/VBox/Card1/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 10
+text = "START A CONVERSATION"
+
+[node name="Desc" type="Label" parent="RightPanel/VBox/Card1/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 8
+text = "Type your message in the caption box below to start talking with Aegis."
+autowrap_mode = 2
+
+[node name="Card2" type="HBoxContainer" parent="RightPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="RightPanel/VBox/Card2"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 0
+texture = ExtResource("16_iplug")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Col" type="VBoxContainer" parent="RightPanel/VBox/Card2"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="Heading" type="Label" parent="RightPanel/VBox/Card2/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 10
+text = "USE PLUGINS"
+
+[node name="Desc" type="Label" parent="RightPanel/VBox/Card2/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 8
+text = "Access powerful features and modules from the plugins panel on the left."
+autowrap_mode = 2
+
+[node name="Card3" type="HBoxContainer" parent="RightPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="RightPanel/VBox/Card3"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 0
+texture = ExtResource("17_ishield")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Col" type="VBoxContainer" parent="RightPanel/VBox/Card3"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="Heading" type="Label" parent="RightPanel/VBox/Card3/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 10
+text = "STAY INFORMED"
+
+[node name="Desc" type="Label" parent="RightPanel/VBox/Card3/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 8
+text = "System status and updates are displayed in real-time."
+autowrap_mode = 2
+
+[node name="Card4" type="HBoxContainer" parent="RightPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="RightPanel/VBox/Card4"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 0
+texture = ExtResource("18_igear")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Col" type="VBoxContainer" parent="RightPanel/VBox/Card4"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="Heading" type="Label" parent="RightPanel/VBox/Card4/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 10
+text = "CUSTOMIZE"
+
+[node name="Desc" type="Label" parent="RightPanel/VBox/Card4/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 8
+text = "Adjust settings and preferences to personalize your experience."
+autowrap_mode = 2
+
+[node name="Card5" type="HBoxContainer" parent="RightPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="RightPanel/VBox/Card5"]
+custom_minimum_size = Vector2(22, 22)
+layout_mode = 2
+size_flags_vertical = 0
+texture = ExtResource("19_ihelp")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Col" type="VBoxContainer" parent="RightPanel/VBox/Card5"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="Heading" type="Label" parent="RightPanel/VBox/Card5/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 10
+text = "NEED HELP?"
+
+[node name="Desc" type="Label" parent="RightPanel/VBox/Card5/Col"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.58, 0.7, 1)
+theme_override_font_sizes/font_size = 8
+text = "Aegis is here to assist you whenever you need it."
+autowrap_mode = 2
+
+[node name="CaptionsPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -390.0
+offset_top = -175.0
+offset_right = 390.0
+offset_bottom = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_captions")
+
+[node name="VBox" type="VBoxContainer" parent="CaptionsPanel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="CaptionsTitle" type="Label" parent="CaptionsPanel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.35, 0.95, 1)
+theme_override_font_sizes/font_size = 10
+text = "CAPTIONS"
+
+[node name="CaptionsText" type="Label" parent="CaptionsPanel/VBox"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.82, 0.92, 1)
+theme_override_font_sizes/font_size = 11
+text = "Welcome to Aegis. How can I assist you today?"
+autowrap_mode = 2
+
+[node name="InputRow" type="HBoxContainer" parent="CaptionsPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="InputContainer" type="PanelContainer" parent="CaptionsPanel/VBox/InputRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/panel = SubResource("StyleBoxFlat_input_box")
+
+[node name="HBox" type="HBoxContainer" parent="CaptionsPanel/VBox/InputRow/InputContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="LineEdit" type="LineEdit" parent="CaptionsPanel/VBox/InputRow/InputContainer/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_placeholder_color = Color(0.48, 0.45, 0.56, 1)
+theme_override_colors/font_color = Color(0.95, 0.92, 1, 1)
+theme_override_font_sizes/font_size = 11
+placeholder_text = "Type your command or message to Aegis..."
+flat = true
+
+[node name="MicButton" type="Button" parent="CaptionsPanel/VBox/InputRow/InputContainer/HBox"]
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+flat = true
+icon = ExtResource("13_mic")
+icon_alignment = 1
+expand_icon = true
+
+[node name="SendButton" type="Button" parent="CaptionsPanel/VBox/InputRow"]
+custom_minimum_size = Vector2(50, 34)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = SubResource("StyleBoxFlat_send_btn")
+theme_override_styles/hover = SubResource("StyleBoxFlat_send_btn_hover")
+text = "➤"
+
+[node name="AudioVisualizer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -40.0
+offset_right = 220.0
+offset_bottom = -14.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="WaveLeft" type="HBoxContainer" parent="AudioVisualizer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+alignment = 2
+
+[node name="StatusText" type="Label" parent="AudioVisualizer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.65, 0.78, 1)
+theme_override_font_sizes/font_size = 9
+text = "AEGIS IS LISTENING"
+
+[node name="WaveRight" type="HBoxContainer" parent="AudioVisualizer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="ModuleOverlay" type="PanelContainer" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220.0
+offset_top = -140.0
+offset_right = 220.0
+offset_bottom = 140.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_overlay")
+
+[node name="VBox" type="VBoxContainer" parent="ModuleOverlay"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="ModuleOverlay/VBox"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="ModuleOverlay/VBox/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.78, 0.45, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "MODULE STATUS"
+
+[node name="CloseButton" type="Button" parent="ModuleOverlay/VBox/Header"]
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+text = "✕"
+flat = true
+
+[node name="Content" type="Label" parent="ModuleOverlay/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.85, 0.94, 1)
+theme_override_font_sizes/font_size = 11
+text = "Module details loaded here."
+autowrap_mode = 2

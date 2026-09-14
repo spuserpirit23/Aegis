@@ -84,17 +84,19 @@ def _find_godot() -> str | None:
             return str(candidate)
 
     downloads = Path.home() / "Downloads"
-    downloaded_builds = sorted(
-        downloads.glob("Godot_v4.8*.exe/Godot_v4.8*.exe"),
-        reverse=True,
-    )
-    downloaded_builds += sorted(
-        downloads.glob("Godot_v4*.exe/Godot_v4*.exe"),
-        reverse=True,
-    )
-    for candidate in downloaded_builds:
-        if candidate.exists():
-            return str(candidate)
+    # Check directly in Downloads or nested folder builds
+    patterns = [
+        "Godot_v4.7*.exe/Godot_v4.7*_win64.exe",
+        "Godot_v4*.exe/Godot_v4*_win64.exe",
+        "Godot_v4*.exe/Godot_v4*.exe",
+        "Godot_v4*.exe",
+        "Godot*.exe",
+    ]
+    for pattern in patterns:
+        matches = sorted(downloads.glob(pattern), reverse=True)
+        for match in matches:
+            if match.is_file():
+                return str(match)
     return None
 
 
