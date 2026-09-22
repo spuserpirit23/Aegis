@@ -227,6 +227,30 @@ bbcode_enabled = true
 text = "[center]H O W   C A N   I   [color=#c084fc]A S S I S T[/color]   Y O U   T O D A Y ?[/center]"
 fit_content = true
 
+[node name="TelemetryBar" type="HBoxContainer" parent="TopHeader"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="EmotionBadge" type="Label" parent="TopHeader/TelemetryBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.45, 1, 1)
+theme_override_font_sizes/font_size = 9
+text = "EMOTION: NEUTRAL"
+
+[node name="TrustBadge" type="Label" parent="TopHeader/TelemetryBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 9
+text = "TRUST: MEDIUM (60/100)"
+
+[node name="UserBadge" type="Label" parent="TopHeader/TelemetryBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.5, 1)
+theme_override_font_sizes/font_size = 9
+text = "IDENTITY: GUEST"
+
+
 [node name="LeftPanel" type="Control" parent="."]
 layout_mode = 1
 anchors_preset = 9
@@ -692,15 +716,31 @@ theme_override_colors/font_color = Color(0.78, 0.45, 1, 1)
 theme_override_font_sizes/font_size = 14
 text = "MODULE STATUS"
 
+[node name="LiveIndicator" type="Label" parent="ModuleOverlay/VBox/Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 9
+text = "● LIVE"
+
 [node name="CloseButton" type="Button" parent="ModuleOverlay/VBox/Header"]
 custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
 text = "✕"
 flat = true
 
-[node name="Content" type="Label" parent="ModuleOverlay/VBox"]
+[node name="Scroll" type="ScrollContainer" parent="ModuleOverlay/VBox"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.88, 0.85, 0.94, 1)
-theme_override_font_sizes/font_size = 11
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Content" type="RichTextLabel" parent="ModuleOverlay/VBox/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_colors/default_color = Color(0.88, 0.85, 0.94, 1)
+theme_override_font_sizes/normal_font_size = 11
+bbcode_enabled = true
 text = "Module details loaded here."
+fit_content = true
 autowrap_mode = 2
+

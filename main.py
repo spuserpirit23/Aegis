@@ -6,7 +6,7 @@ from pathlib import Path
 
 from brain.memory import Memory
 from brain.planner import Planner
-from voice.stt import listen
+from voice.stt import listen, microphone_status
 from voice.tts import speak
 
 
@@ -19,6 +19,8 @@ def main():
     planner = build_planner()
 
     print("Brain online (voice mode).")
+    print(f"Python: {sys.executable}")
+    print(microphone_status())
     print("Press Enter to talk, or type a message instead. Type 'exit' to quit.\n")
 
     while True:
@@ -63,7 +65,10 @@ def ui_main():
         return
 
     try:
-        subprocess.run([godot_exe, "--path", str(project_dir / "godot_ui")], check=False)
+        subprocess.run(
+            [godot_exe, "--audio-driver", "Dummy", "--path", str(project_dir / "godot_ui")],
+            check=False,
+        )
     finally:
         server.shutdown()
 

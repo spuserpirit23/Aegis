@@ -1,0 +1,4 @@
+greeting: "Hello! Good to hear from you."
+status_check: "I'm running fine, thanks for checking."
+farewell: "Talk soon."
+fallback: "I'm not sure how to answer that yet."

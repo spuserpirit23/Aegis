@@ -1,0 +1,20 @@
+# Which languages the engine has scripted coverage for.
+# Adding a language = adding a scripts/<code>.yaml file + listing it here.
+# No code changes needed.
+supported_languages:
+  - en
+  - hi
+
+default_language: en
+min_detection_confidence: 0.5
+
+# Intents that have scripted (zero-LLM) responses. Anything not listed
+# here always falls through to the LLM backend.
+known_intents:
+  - greeting
+  - status_check
+  - farewell
+
+# Which GenerationBackend to instantiate. Swap "gemini" for "local" once
+# LocalModelBackend is implemented, with no router/detector changes.
+backend: gemini

@@ -3,6 +3,7 @@ import json
 import re
 import time
 from pathlib import Path
+from typing import Optional
 from google import genai
 
 from skills.weather import get_weather, TOOL_SCHEMA as WEATHER_SCHEMA
@@ -11,6 +12,7 @@ from brain.trust import trust_level
 from brain.emotion import compute_emotion
 from brain.memory import extract_name
 from brain.permission import check_permission
+from language.engine import LanguageEngine
 
 MODEL = "gemini-3.6-flash"
 
@@ -104,6 +106,7 @@ class Planner:
         self._asked_name_this_session = False
         self.uses_fallback = not api_key
         self.client = None
+        self.language_engine = None
         self.skills = {}
         self.last_trust = "medium"
         self.last_emotion = "neutral"
@@ -112,6 +115,7 @@ class Planner:
             return
 
         self.client = genai.Client(api_key=api_key)
+        self.language_engine = LanguageEngine(gemini_client=self)
         self.skills = {
             "get_weather": get_weather,
             "remember_fact": self._remember_fact,
@@ -172,6 +176,9 @@ class Planner:
             system += "\n\n" + self.current_user.facts_as_text()
         return system
 
+    def generate(self, prompt: str, lang: str, context: dict) -> str:
+        return self._respond_direct(prompt, context["system_prompt"], prepared=True)
+
     def respond(self, user_text: str) -> str:
         self._resolve_speaker(user_text)
         self.current_user.add_turn("user", user_text)
@@ -186,6 +193,34 @@ class Planner:
             return fallback
 
         system = self._build_system_instruction()
+        result = self.language_engine.reply(
+            text=user_text,
+            intent=None,
+            context={"system_prompt": system},
+        )
+        self.current_user.add_turn("assistant", result.text)
+        return result.text
+
+    def _respond_direct(
+        self,
+        user_text: str,
+        system: Optional[str] = None,
+        prepared: bool = False,
+    ) -> str:
+        if not prepared:
+            self._resolve_speaker(user_text)
+            self.current_user.add_turn("user", user_text)
+            self._save_explicit_facts(user_text)
+
+        if self.uses_fallback:
+            fallback = (
+                "Gemini is not configured right now, so I can only provide a "
+                "basic fallback response. Set GEMINI_API_KEY to enable full AI replies."
+            )
+            self.current_user.add_turn("assistant", fallback)
+            return fallback
+
+        system = system or self._build_system_instruction()
 
         prev_id = self.current_user.facts.get(_INTERACTION_KEY)
         kwargs = dict(
@@ -259,5 +294,4 @@ class Planner:
 
         final_text = interaction.output_text
         self.current_user.remember_fact(_INTERACTION_KEY, interaction.id)
-        self.current_user.add_turn("assistant", final_text)
         return final_text
