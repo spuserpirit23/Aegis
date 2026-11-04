@@ -6,11 +6,21 @@ import yaml
 
 try:
     from .detector import LanguageDetector
-    from .backend import GeminiBackend, ScriptedBackend
+    from generation import (
+        CloudLLMBackend,
+        GenerationBackend,
+        GenerationRouter,
+        ScriptedBackend,
+    )
     from .router import LanguageRouter, RouteResult
 except ImportError:
     from detector import LanguageDetector
-    from backend import GeminiBackend, ScriptedBackend
+    from generation import (
+        CloudLLMBackend,
+        GenerationBackend,
+        GenerationRouter,
+        ScriptedBackend,
+    )
     from router import LanguageRouter, RouteResult
 
 _HERE = os.path.dirname(__file__)
@@ -19,7 +29,8 @@ _HERE = os.path.dirname(__file__)
 class LanguageEngine:
     def __init__(
         self,
-        gemini_client=None,
+        generation: Optional[GenerationRouter] = None,
+        cloud_provider=None,
         config_path: Optional[str] = None,
         scripts_dir: Optional[str] = None,
     ):
@@ -40,15 +51,19 @@ class LanguageEngine:
             default_lang=self.config.get("default_language", "en"),
             min_confidence=self.config.get("min_detection_confidence", 0.5),
         )
-        scripted = ScriptedBackend(script_store) if script_store else None
-        llm = GeminiBackend(gemini_client) if gemini_client is not None else None
+        if generation is None:
+            backends: list[GenerationBackend] = [ScriptedBackend(script_store)]
+            if cloud_provider is not None:
+                backends.append(CloudLLMBackend(cloud_provider))
+            generation = GenerationRouter(backends)
 
         self.router = LanguageRouter(
             detector=detector,
-            scripted_backend=scripted,
-            llm_backend=llm,
+            scripted_backend=generation.backends[0] if generation.backends else None,
+            llm_backend=generation.backends[-1] if len(generation.backends) > 1 else None,
             known_intents=set(self.config.get("known_intents", [])),
         )
+        self.router.generation = generation
 
     def reply(
         self,

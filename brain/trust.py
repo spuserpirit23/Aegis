@@ -15,6 +15,8 @@ for an investor demo.
 
 from __future__ import annotations
 
+from brain.memory import GUEST_KEY
+
 
 # Signals and their point values. Tune these, don't rewrite the shape,
 # unless a new signal is genuinely needed.
@@ -27,12 +29,18 @@ _LOW_MAX = 2      # score <= this -> low
 _MEDIUM_MAX = 5    # score <= this -> medium; above -> high
 
 
+def _is_guest(memory) -> bool:
+    return getattr(memory, "key", None) == GUEST_KEY
+
+
 def compute_trust_score(memory) -> int:
     """Pure function of memory state. No side effects, no I/O beyond
     what memory already loaded — safe to call every turn."""
     score = 0
 
-    if memory.facts.get("nickname") or memory.facts.get("name"):
+    # Memory.get_user() seeds every bucket with facts["name"], including the
+    # shared guest bucket, so a name fact on the guest proves nothing.
+    if not _is_guest(memory) and (memory.facts.get("nickname") or memory.facts.get("name")):
         score += _KNOWN_RELATIONSHIP_POINTS
 
     turn_count = len(memory.turns)
@@ -50,6 +58,10 @@ def compute_trust_score(memory) -> int:
 
 
 def trust_level(memory) -> str:
+    # The guest bucket is shared by every unidentified speaker, so its turn
+    # count says nothing about any one person: always low, by design.
+    if _is_guest(memory):
+        return "low"
     score = compute_trust_score(memory)
     if score <= _LOW_MAX:
         return "low"
