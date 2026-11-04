@@ -3,6 +3,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from brain.emotion_context import ResponseEmotionContext
 from brain.planner import Planner, TOOLS
 from brain.trust import compute_trust_score, trust_level
 from voice.tts import speak
@@ -110,17 +111,56 @@ class AegisBridge:
                 if turn.get("role") == "user":
                     last_text = turn.get("content", "")
                     break
-            current_emotion = getattr(self.planner, "last_emotion", "neutral").upper()
-            valence = "POSITIVE" if current_emotion == "HAPPY" else ("NEGATIVE" if current_emotion in ("CONCERNED", "ANGRY", "SAD") else "NEUTRAL")
+            ctx = getattr(self.planner, "emotion_context", None) or ResponseEmotionContext.baseline(
+                getattr(self.planner, "last_emotion", "neutral"))
+            aegis, observed = ctx.aegis, ctx.user
+            valence_score = round(aegis.valence, 3)
+            valence = "POSITIVE" if valence_score > 0.15 else ("NEGATIVE" if valence_score < -0.15 else "NEUTRAL")
             return {
-                "emotion": current_emotion,
-                "intensity": 0.9,
+                "emotion": aegis.tendency.upper(),
+                "intensity": round(aegis.intensity, 3),
                 "last_user_input": last_text,
                 "expressiveness": "CALIBRATED",
                 "voice_pitch_modulation": "DYNAMIC ACTIVE",
                 "persona": "Aegis Cybernetic Companion",
                 "valence": valence,
+                "valence_score": valence_score,
+                "arousal": round(aegis.arousal, 3),
+                "dominance": round(aegis.dominance, 3),
+                "confidence": round(aegis.confidence, 3),
+                "secondary": {k: round(v, 3) for k, v in aegis.secondary.items()},
+                "source": aegis.source,
+                # This turn's evidence (unchanged meaning from before the typed context).
+                "user_emotion": observed.turn_emotion if observed else None,
+                "user_valence": (round(observed.turn_valence, 3)
+                                 if observed and observed.turn_valence is not None else None),
+                "context": ctx.to_dict(),
                 "status": "ONLINE",
+            }
+
+    def emotion_debug_state(self) -> dict:
+        """Return bounded state history and event names for UI/debug tooling."""
+        with self.lock:
+            user = self._get_active_user()
+            entity = f"user:{user.key}"
+            engine = self.planner.emotion_engine
+
+            def serialise(value):
+                if hasattr(value, "to_dict"):
+                    return value.to_dict()
+                if isinstance(value, dict):
+                    return {key: serialise(item) for key, item in value.items()}
+                if isinstance(value, list):
+                    return [serialise(item) for item in value]
+                return value
+
+            return {
+                "status": "ONLINE",
+                "entity": entity,
+                "user_history": [state.to_dict() for state in engine.history(entity)],
+                "aegis_history": [state.to_dict() for state in engine.history("aegis")],
+                "events": [serialise(event) for event in engine.events()],
+                "bus_events": [serialise(event) for event in self.planner.event_bus.events()],
             }
 
     def analytics_state(self) -> dict:
@@ -329,6 +369,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(self.bridge.trust_state())
         elif path == "/emotion":
             self._send_json(self.bridge.emotion_state())
+        elif path in ("/emotion/debug", "/emotion/history"):
+            self._send_json(self.bridge.emotion_debug_state())
         elif path == "/analytics":
             self._send_json(self.bridge.analytics_state())
         elif path == "/integrations":

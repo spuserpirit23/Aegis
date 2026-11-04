@@ -6,6 +6,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 _LEGACY_BUCKET = "_legacy"
 
+# Shared bucket for anyone who hasn't given a name. Never trusted: see trust.py.
+GUEST_KEY = "guest"
+
 _NAME_PATTERNS = [
     re.compile(r"\bi'?m\s+([a-zA-Z][a-zA-Z\-']{0,30})\b", re.IGNORECASE),
     re.compile(r"\bi am\s+([a-zA-Z][a-zA-Z\-']{0,30})\b", re.IGNORECASE),

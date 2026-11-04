@@ -10,13 +10,18 @@ from skills.weather import get_weather, TOOL_SCHEMA as WEATHER_SCHEMA
 from brain.mind import Mind
 from brain.trust import trust_level
 from brain.emotion import compute_emotion
-from brain.memory import extract_name
+from brain.emotion_engine import legacy_label
+from brain.emotion_context import ResponseEmotionContext
+from brain.emotion_providers import build_emotion_engine
+from brain.event_bus import EventBus
+from brain.memory import GUEST_KEY, extract_name
 from brain.permission import check_permission
+from generation import GenerationRequest
 from language.engine import LanguageEngine
 
 MODEL = "gemini-3.6-flash"
 
-_GUEST_KEY = "guest"
+_GUEST_KEY = GUEST_KEY
 
 _TOOL_USE_INSTRUCTION = (
     "Use the weather tool when asked about weather. When the user "
@@ -110,12 +115,22 @@ class Planner:
         self.skills = {}
         self.last_trust = "medium"
         self.last_emotion = "neutral"
+        # Structured, entity-aware emotion state. Perception of the user stays
+        # separate from AEGIS's own regulated state; the engine never replies.
+        self.event_bus = EventBus()
+        if api_key:
+            self.client = genai.Client(api_key=api_key)
+        # Provider comes from AEGIS_EMOTION_PROVIDER (default: rule-based).
+        self.emotion_engine = build_emotion_engine(event_bus=self.event_bus, cloud_client=self.client)
+        self.last_observation = None
+        self.last_emotion_state = None
+        # Typed per-turn context for prompts and the UI (see brain/emotion_context.py).
+        self.emotion_context = ResponseEmotionContext.baseline()
 
         if not api_key:
             return
 
-        self.client = genai.Client(api_key=api_key)
-        self.language_engine = LanguageEngine(gemini_client=self)
+        self.language_engine = LanguageEngine(cloud_provider=self)
         self.skills = {
             "get_weather": get_weather,
             "remember_fact": self._remember_fact,
@@ -158,11 +173,39 @@ class Planner:
                 self.current_user.remember_fact(key, value)
             return
 
+    def _observe_emotion(self, user_text: str) -> None:
+        """Update user perception and AEGIS's regulated state for this turn."""
+        trust = trust_level(self.current_user)
+        entity = f"user:{self.current_user.key}"
+        context = {
+            "trust": trust,
+            "recent_turns": self.current_user.recent()[-4:],
+            "user_key": self.current_user.key,
+        }
+        observation = self.emotion_engine.process(user_text, entity=entity, context=context)
+        state = self.emotion_engine.regulate(observation)
+        label = legacy_label(state)
+        # Preserve the existing trust rule: don't perform warmth toward
+        # someone who hasn't earned it yet.
+        if trust == "low" and label == "happy":
+            label = "neutral"
+        self.last_observation = observation
+        self.last_emotion_state = state
+        self.last_emotion = label
+        self.emotion_context = ResponseEmotionContext.from_turn(
+            observation=observation,
+            user_state=self.emotion_engine.state(entity),
+            aegis_state=state,
+            label=label,
+            trust=trust,
+        )
+
     def _build_system_instruction(self) -> str:
         trust = trust_level(self.current_user)
-        emotion = compute_emotion(self.current_user, trust)
+        if self.last_emotion_state is None:
+            self.last_emotion = compute_emotion(self.current_user, trust)
         self.last_trust = trust
-        self.last_emotion = emotion
+        emotion = self.last_emotion
 
         system = mind.as_prompt(trust=trust, emotion=emotion)
         system += "\n\n[TOOL USE]\n" + _TOOL_USE_INSTRUCTION
@@ -174,15 +217,27 @@ class Planner:
 
         if self.current_user.facts_as_text():
             system += "\n\n" + self.current_user.facts_as_text()
+        # Give the response model calibrated state, not a bare sentiment
+        # label. This preserves uncertainty and the distinction between the
+        # user's evidence and AEGIS's regulated response tendency.
+        affective = self.emotion_context.to_prompt()
+        if affective:
+            system += "\n\n" + affective
         return system
 
-    def generate(self, prompt: str, lang: str, context: dict) -> str:
-        return self._respond_direct(prompt, context["system_prompt"], prepared=True)
+    def generate(self, request: GenerationRequest) -> str:
+        context = request.context or {}
+        return self._respond_direct(
+            request.text,
+            context.get("system_prompt"),
+            prepared=True,
+        )
 
     def respond(self, user_text: str) -> str:
         self._resolve_speaker(user_text)
         self.current_user.add_turn("user", user_text)
         self._save_explicit_facts(user_text)
+        self._observe_emotion(user_text)
 
         if self.uses_fallback:
             fallback = (
@@ -211,6 +266,7 @@ class Planner:
             self._resolve_speaker(user_text)
             self.current_user.add_turn("user", user_text)
             self._save_explicit_facts(user_text)
+            self._observe_emotion(user_text)
 
         if self.uses_fallback:
             fallback = (
