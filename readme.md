@@ -286,18 +286,29 @@ change engine state. The authoritative contract is `EMOTION_EVENTS` in
 | `emotion.detected` | `observation`, `source` | A provider returned evidence for a message. |
 | `emotion.changed` | `previous`, `current`, `intensity`, `cause`, `state` | The primary emotion changed; `cause` is `observation` or `decay`. |
 | `emotion.state_changed` | `state` | After every update, even if the primary emotion is unchanged. |
-| `emotion.decayed` | `state` | Time-based decay was applied. Lazy: fires when state is read, not on a timer. |
+| `emotion.decayed` | `state` | Decay moved a score or valence by more than `change_threshold` (default 0.03), or an emotion faded out. Lazy: fires when state is read, not on a timer. |
 | `emotion.provider_fallback` | `provider`, `fallback`, `error` | A provider failed and another (or the rules) answered instead. |
 
-Run its CLI demo with:
+#### Emotion debugger
+
+All commands read `mind/emotion.yaml`; `--provider` and `--config` override it.
 
 ```powershell
-python -m brain.emotion_engine "I've been trying this for hours and nothing works!" --entity user:guest --regulate
+# One message: observation, user state, AEGIS tendency, events (--json for machines)
+python -m brain.emotion_debug analyze "I've been trying this for hours and nothing works!" --regulate
+
+# Interactive session. Time is frozen; ":wait 600" shows ten minutes of decay.
+# :state  :history  :events  :entity NAME  :provider NAME  :config  :reset  :help  :quit
+python -m brain.emotion_debug repl
+
+# Inspect the running app through the bridge (/emotion and /emotion/debug)
+python -m brain.emotion_debug live [--url http://127.0.0.1:8765]
+
+# Effective tuning and which file it came from
+python -m brain.emotion_debug config
 ```
 
-Use `--json` when consuming the output programmatically. The demo shows both
-the detected user observation and, when `--regulate` is supplied, AEGIS's
-calm/concerned response tendency rather than mirroring distress.
+`python -m brain.emotion_engine "text"` still works as a shortcut for `analyze`.
 
 ---
 

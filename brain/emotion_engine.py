@@ -6,7 +6,6 @@ decay, history, and events. It never performs actions or generates replies.
 """
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
@@ -458,7 +457,9 @@ EMOTION_EVENTS: dict[str, dict[str, str]] = {
     },
     "emotion.decayed": {
         "entity": "str",
-        "state": "EmotionState - state after decay. Emitted lazily when state() is read, not on a timer",
+        "state": "EmotionState - state after decay. Emitted lazily when state() is read, not on a timer, "
+                 "and only when decay moved a score or valence by more than change_threshold "
+                 "or an emotion faded out",
         "timestamp": "float",
     },
     "emotion.provider_fallback": {
@@ -498,7 +499,7 @@ class EmotionEngine:
         self.persistence = _unit(persistence, "persistence")
         self.decay_enabled = bool(decay)
         self.history_limit = max(1, int(history_limit))
-        # Accepted for backward compatibility; not currently used by update().
+        # Minimum decay worth recording in history/events (see state()).
         self.change_threshold = _unit(change_threshold, "change_threshold")
         if not math.isfinite(dimension_half_life_seconds) or dimension_half_life_seconds <= 0:
             raise ValueError("dimension_half_life_seconds must be a positive finite number")
@@ -674,7 +675,9 @@ class EmotionEngine:
         if current is None:
             return EmotionState(entity, timestamp=now)
         decayed = self._decayed_copy(current, now)
-        if decayed.emotions != current.emotions or abs(decayed.valence - current.valence) > 1e-9:
+        if self._decay_is_significant(current, decayed):
+            # Below the threshold nothing is stored or announced; the next read
+            # decays from the same stored timestamp, so values never drift.
             self._states[entity] = decayed
             self._history.setdefault(entity, []).append(decayed.copy())
             self._history[entity] = self._history[entity][-self.history_limit:]
@@ -684,6 +687,20 @@ class EmotionEngine:
                                                "current": decayed.primary, "intensity": decayed.intensity,
                                                "cause": "decay", "state": decayed.copy()})
         return decayed.copy()
+
+    def _decay_is_significant(self, before: EmotionState, after: EmotionState) -> bool:
+        """True when decay is worth recording: an emotion faded out, or any
+        score or valence moved by more than ``change_threshold``."""
+        if set(before.emotions) != set(after.emotions):
+            return True
+        if abs(after.valence - before.valence) > self.change_threshold:
+            return True
+        return any(abs(after.emotions[name] - score) > self.change_threshold
+                   for name, score in before.emotions.items())
+
+    def entities(self) -> list[str]:
+        """Entities with recorded state, in first-seen order."""
+        return list(self._states)
 
     def get_entity(self, entity: str) -> EmotionState:
         return self.state(entity)
@@ -708,55 +725,16 @@ class EmotionEngine:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the dependency-free emotion engine from a terminal.
+    """``python -m brain.emotion_engine TEXT`` is shorthand for the debugger's
+    ``analyze`` command (``python -m brain.emotion_debug --help`` for more).
 
-    This intentionally uses only :class:`RuleBasedEmotionProvider`, making it
-    useful as a smoke test and as an example integration for other providers.
+    Imported lazily: the debugger builds engines from configuration, and the
+    config/provider modules import this one.
     """
-    parser = argparse.ArgumentParser(
-        description="Analyze emotion evidence and update AEGIS emotion state.",
-    )
-    parser.add_argument(
-        "text",
-        nargs="?",
-        default="I've been trying this for hours and nothing works!",
-        help="Text to analyze (defaults to a short demo).",
-    )
-    parser.add_argument("--entity", default="user", help="Entity that produced the text.")
-    parser.add_argument(
-        "--regulate",
-        action="store_true",
-        help="Also show AEGIS's regulated, non-mirroring state.",
-    )
-    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
-    args = parser.parse_args(argv)
+    import sys
+    from .emotion_debug import main as debug_main
 
-    engine = EmotionEngine()
-    observation = engine.process(args.text, entity=args.entity)
-    payload: dict[str, object] = {
-        "observation": {
-            "entity": observation.entity,
-            "primary": observation.primary,
-            "emotions": observation.emotions,
-            "intensity": observation.intensity,
-            "valence": observation.valence,
-            "arousal": observation.arousal,
-            "dominance": observation.dominance,
-            "confidence": observation.confidence,
-            "source": observation.source,
-        },
-        "state": engine.state(args.entity).to_dict(),
-        "events": [event["event"] for event in engine.events()],
-    }
-    if args.regulate:
-        payload["aegis_state"] = engine.regulate(observation).to_dict()
-
-    if args.json:
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        print(f"Observed {payload['observation']['primary']} in {args.entity}.")
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
+    return debug_main(["analyze", *(sys.argv[1:] if argv is None else argv)])
 
 
 if __name__ == "__main__":
