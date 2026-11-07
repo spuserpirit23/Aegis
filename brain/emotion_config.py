@@ -66,6 +66,7 @@ class EngineTuning:
     dimension_half_life_seconds: float = 900.0
     history_limit: int = 100
     event_limit: int = 500
+    change_threshold: float = .03
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ class RegulationTuning:
 
 _VALIDATORS = {
     "persistence": _unit, "decay": _flag, "dimension_half_life_seconds": _positive,
-    "history_limit": _count, "event_limit": _count,
+    "history_limit": _count, "event_limit": _count, "change_threshold": _unit,
     "concern_base": _unit, "concern_gain": _unit, "calm_base": _unit, "calm_under_stress": _unit,
     "provider": _text, "local_model": _text, "cloud_model": _text,
 }

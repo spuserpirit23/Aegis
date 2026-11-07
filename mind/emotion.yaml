@@ -23,6 +23,9 @@ engine:
   history_limit: 100
   # Events kept by engine.events().
   event_limit: 500
+  # 0..1. Decay smaller than this (in any emotion score or valence) is not
+  # recorded in history or announced as emotion.decayed.
+  change_threshold: 0.03
 
 # How AEGIS responds to the user's emotion (regulation, not mirroring).
 regulation:
