@@ -24,7 +24,7 @@ def memory():
 
 def test_fresh_guest_bucket_is_low_and_scores_zero(memory):
     guest = memory.get_user(GUEST_KEY)
-    assert guest.facts.get("name")  # the seeded fact that caused the bug
+    assert "name" not in guest.facts  # guest is no longer seeded with a name fact
     assert compute_trust_score(guest) == 0
     assert trust_level(guest) == "low"
 

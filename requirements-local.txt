@@ -1,0 +1,5 @@
+# Optional: on-device emotion classifier (AEGIS_EMOTION_PROVIDER=local).
+# Not needed for the default rule-based provider. Install with:
+#   install.bat --local
+torch>=2.0.0
+transformers>=4.30.0

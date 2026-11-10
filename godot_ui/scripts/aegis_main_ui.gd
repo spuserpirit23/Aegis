@@ -10,8 +10,8 @@ const LISTEN_POLL_INTERVAL := 0.35
 var current_plugin := "CONVERSATION"
 var status := "ready"
 var emotion := "NEUTRAL"
-var trust_score := 100
-var trust_level_str := "MEDIUM"
+var trust_score := 0
+var trust_level_str := "LOW"
 var active_user := "Guest"
 var reply_text := "Welcome to Aegis. How can I assist you today?"
 var is_speaking := false
@@ -256,9 +256,9 @@ func _update_emotion_aesthetics() -> void:
 	avatar_rect.modulate = tint_col
 
 	trust_badge.text = "TRUST: %s (%d/100)" % [trust_level_str, trust_score]
-	if trust_score >= 70:
+	if trust_level_str == "HIGH":
 		trust_badge.add_theme_color_override("font_color", Color(0.3, 0.92, 0.55))
-	elif trust_score >= 40:
+	elif trust_level_str == "MEDIUM":
 		trust_badge.add_theme_color_override("font_color", Color(0.35, 0.85, 0.95))
 	else:
 		trust_badge.add_theme_color_override("font_color", Color(1.0, 0.55, 0.35))
@@ -454,75 +454,84 @@ func _render_memory_view(data: Dictionary) -> void:
 				bb += "[color=#c084fc]Aegis:[/color] %s\n" % content
 	module_content.text = bb
 
+func _status_color(status: String) -> String:
+	var s := status.to_upper()
+	if s in ["OK", "ONLINE", "READY", "CONNECTED", "ENABLED"]:
+		return "#4ade80"
+	if s.begins_with("CONFIGURED") or s in ["UNTESTED", "NOT SEEN", "STALE"]:
+		return "#fbbf24"
+	return "#f87171"
+
 func _render_trust_view(data: Dictionary) -> void:
 	var u: String = data.get("user", "Unknown")
-	var lvl: String = data.get("trust_level", "MEDIUM")
+	var lvl: String = data.get("trust_level", "LOW")
 	var score: int = int(data.get("score", 0))
-	var scaled: int = int(data.get("scaled_score", 50))
-	var rel_confirmed: bool = data.get("relationship_confirmed", false)
+	var scaled: int = int(data.get("scaled_score", 0))
+	var is_guest: bool = data.get("is_guest", true)
 	var pts: Dictionary = data.get("points_breakdown", {})
-	var guardrails: String = data.get("guardrails", "MAXIMUM")
+	var basis: String = data.get("identity_basis", "unknown")
+	var reason: String = data.get("reason", "")
+	var allowed: Array = data.get("allowed_skills", [])
 
 	var lvl_color := "#4ade80" if lvl == "HIGH" else ("#38bdf8" if lvl == "MEDIUM" else "#fb923c")
 
-	var bb := "[b][color=#38bdf8]AEGIS TRUST ENGINE TELEMETRY[/color][/b]\n"
-	bb += "• [color=#94a3b8]Subject Identity:[/color] [b]%s[/b]\n" % u
-	bb += "• [color=#94a3b8]Current Trust Level:[/color] [b][color=%s]%s[/color][/b]\n" % [lvl_color, lvl]
-	bb += "• [color=#94a3b8]Trust Rating:[/color] [b][color=%s]%d / 100[/color][/b] (Raw score: %d pts)\n\n" % [lvl_color, scaled, score]
+	var bb := "[b][color=#38bdf8]TRUST[/color][/b]\n"
+	bb += "• [color=#94a3b8]Speaker:[/color] [b]%s[/b] [color=#94a3b8](%s)[/color]\n" % [u, basis]
+	bb += "• [color=#94a3b8]Trust Level:[/color] [b][color=%s]%s[/color][/b]\n" % [lvl_color, lvl]
+	bb += "• [color=#94a3b8]Score:[/color] [b][color=%s]%d / 100[/color][/b] (raw %d pts)\n" % [lvl_color, scaled, score]
+	bb += "  [color=#94a3b8]%s[/color]\n\n" % reason
 
-	bb += "[b][color=#38bdf8]AUDITABLE POINT SIGNALS:[/color][/b]\n"
-	bb += "  • Known Relationship Confirmed: [color=#4ade80]+%d pts[/color] (%s)\n" % [pts.get("known_relationship", 0), ("Identity Verified" if rel_confirmed else "Unverified Guest")]
-	bb += "  • Interaction History Turns: [color=#4ade80]+%d pts[/color] (%d turns logged)\n" % [pts.get("interaction_history", 0), data.get("turn_count", 0)]
-	bb += "  • User Correction Penalty: [color=#f87171]%d pts[/color]\n\n" % [pts.get("correction_penalty", 0)]
+	bb += "[b][color=#38bdf8]POINT SIGNALS:[/color][/b]\n"
+	bb += "  • Confirmed name: [color=#4ade80]+%d pts[/color] (%s)\n" % [pts.get("known_relationship", 0), ("guest, no name" if is_guest else "self-declared, not verified")]
+	bb += "  • Interaction history: [color=#4ade80]+%d pts[/color] (%d turns)\n" % [pts.get("interaction_history", 0), data.get("turn_count", 0)]
+	bb += "  • Correction penalty: [color=#f87171]%d pts[/color]\n\n" % [pts.get("correction_penalty", 0)]
 
-	bb += "[b][color=#38bdf8]SECURITY DIRECTIVE & GUARDRAILS:[/color][/b]\n"
-	bb += "  • Enforcement Status: [color=#4ade80]%s[/color]\n" % guardrails
-	bb += "  • System Policy: Trust derives purely from memory state in ~1ms."
+	bb += "[b][color=#38bdf8]PERMISSIONS:[/color][/b]\n"
+	bb += "  • Skills allowed (independent of trust): %s" % (", ".join(allowed) if not allowed.is_empty() else "none")
 	module_content.text = bb
 
 func _render_emotion_view(data: Dictionary) -> void:
 	var emot: String = data.get("emotion", "NEUTRAL")
 	var valence: String = data.get("valence", "NEUTRAL")
 	var last_input: String = data.get("last_user_input", "")
-	var expressiveness: String = data.get("expressiveness", "CALIBRATED")
-	var pitch: String = data.get("voice_pitch_modulation", "ACTIVE")
+	var intensity: float = float(data.get("intensity", 0.0))
+	var confidence: float = float(data.get("confidence", 0.0))
+	var provider = data.get("provider", null)
 
-	var bb := "[b][color=#e879f9]COMPUTATIONAL EMOTION SYNTHESIS[/color][/b]\n"
-	bb += "• [color=#94a3b8]Current Emotional State:[/color] [b][color=#c084fc]%s[/color][/b]\n" % emot
-	bb += "• [color=#94a3b8]Emotional Valence:[/color] [b]%s[/b]\n" % valence
-	bb += "• [color=#94a3b8]Pitch & Tone Modulation:[/color] %s\n" % pitch
-	bb += "• [color=#94a3b8]Expressiveness Profile:[/color] %s\n\n" % expressiveness
+	var bb := "[b][color=#e879f9]EMOTION STATE[/color][/b]\n"
+	bb += "• [color=#94a3b8]Aegis tendency:[/color] [b][color=#c084fc]%s[/color][/b] (intensity %.2f, confidence %.2f)\n" % [emot, intensity, confidence]
+	bb += "• [color=#94a3b8]Valence:[/color] [b]%s[/b] (%.2f)\n" % [valence, float(data.get("valence_score", 0.0))]
+	bb += "• [color=#94a3b8]Provider:[/color] %s\n\n" % (str(provider) if provider != null else "unknown")
 
 	bb += "[b][color=#e879f9]LAST APPRAISED INPUT:[/color][/b]\n"
 	if last_input.is_empty():
-		bb += "  [color=#94a3b8](No previous utterance)[/color]\n\n"
+		bb += "  [color=#94a3b8](No previous utterance)[/color]\n"
 	else:
-		bb += "  \"%s\"\n\n" % last_input
-
-	bb += "[b][color=#e879f9]AFFECT ARCHITECTURE:[/color][/b]\n"
-	bb += "  Aegis maintains consistent internal affective states. Emotion modulates\n"
-	bb += "  conversational tone, avatar visual accents, and cognitive priorities."
+		bb += "  \"%s\"\n" % last_input
 	module_content.text = bb
 
 func _render_analytics_view(data: Dictionary) -> void:
 	var uptime: String = data.get("uptime_formatted", "00:00:00")
 	var reqs: int = int(data.get("total_requests", 0))
+	var failed: int = int(data.get("failed_requests", 0))
+	var last_error: String = data.get("last_error", "")
 	var lat: float = float(data.get("last_latency_ms", 0.0))
 	var turns: int = int(data.get("total_turns", 0))
 	var facts: int = int(data.get("total_facts_stored", 0))
-	var model: String = data.get("model", "gemini-3.6-flash")
+	var model: String = data.get("model", "unknown")
 	var fallback: bool = data.get("fallback_mode", false)
 
-	var bb := "[b][color=#4ade80]LIVE SYSTEM ANALYTICS[/color][/b]\n"
-	bb += "• [color=#94a3b8]Uptime:[/color] [b]%s[/b]  |  [color=#94a3b8]System Health:[/color] [color=#4ade80]NOMINAL[/color]\n" % uptime
-	bb += "• [color=#94a3b8]Active LLM Engine:[/color] %s %s\n\n" % [model, ("[color=#fbbf24](Fallback)[/color]" if fallback else "[color=#4ade80](Online)[/color]")]
+	var bb := "[b][color=#4ade80]RUNTIME ANALYTICS[/color][/b]\n"
+	bb += "• [color=#94a3b8]Uptime:[/color] [b]%s[/b]\n" % uptime
+	bb += "• [color=#94a3b8]LLM:[/color] %s %s\n\n" % [model, ("[color=#fbbf24](not configured: fallback replies)[/color]" if fallback else "")]
 
-	bb += "[b][color=#4ade80]RUNTIME PERFORMANCE:[/color][/b]\n"
-	bb += "  • Total Requests Processed: [b]%d[/b]\n" % reqs
-	bb += "  • Last Request Latency: [b][color=#38bdf8]%.1f ms[/color][/b]\n" % lat
-	bb += "  • Total Dialogue Turns: [b]%d[/b]\n" % turns
-	bb += "  • Durable Facts in Memory: [b]%d[/b]\n" % facts
-	bb += "  • Memory Footprint: [color=#4ade80]OPTIMAL (< 120MB)[/color]"
+	bb += "[b][color=#4ade80]REQUESTS:[/color][/b]\n"
+	bb += "  • Processed: [b]%d[/b]  |  Failed: [b][color=%s]%d[/color][/b]\n" % [reqs, ("#f87171" if failed > 0 else "#4ade80"), failed]
+	if not last_error.is_empty():
+		bb += "  • Last error: [color=#f87171]%s[/color]\n" % last_error
+	bb += "  • Last latency: [b][color=#38bdf8]%.1f ms[/color][/b]\n" % lat
+	bb += "  • Stored dialogue turns: [b]%d[/b]\n" % turns
+	bb += "  • Stored facts: [b]%d[/b]" % facts
 	module_content.text = bb
 
 func _render_integrations_view(data: Dictionary) -> void:
@@ -531,14 +540,25 @@ func _render_integrations_view(data: Dictionary) -> void:
 	var stt: Dictionary = data.get("speech_stt", {})
 	var tts: Dictionary = data.get("speech_tts", {})
 	var godot: Dictionary = data.get("godot_frontend", {})
+	var skills: Dictionary = data.get("skills", {})
 
-	var bb := "[b][color=#f472b6]INTEGRATED SUBSYSTEM STATUS[/color][/b]\n\n"
-	bb += "• [color=#38bdf8]Python HTTP Bridge:[/color] [color=#4ade80]%s[/color] (%s)\n" % [bridge.get("status", "ONLINE"), bridge.get("endpoint", "8765")]
-	bb += "• [color=#38bdf8]Gemini LLM Core:[/color] [color=#4ade80]%s[/color] (%s)\n" % [gemini.get("status", "ONLINE"), gemini.get("model", "gemini-3.6-flash")]
-	bb += "• [color=#38bdf8]Voice STT Engine:[/color] [color=#4ade80]%s[/color]\n  [color=#94a3b8]Detail: %s[/color]\n" % [stt.get("status", "ONLINE"), stt.get("detail", "Ready")]
-	bb += "• [color=#38bdf8]Voice TTS Engine:[/color] [color=#4ade80]%s[/color] (%s)\n" % [tts.get("status", "ONLINE"), tts.get("engine", "pyttsx3")]
-	bb += "• [color=#38bdf8]Godot Frontend:[/color] [color=#4ade80]%s[/color] (%s)\n" % [godot.get("status", "CONNECTED"), godot.get("polling_interval", "0.35s")]
-	bb += "• [color=#38bdf8]Cognitive Skills:[/color] [color=#4ade80]Weather Skill, Memory Skill Active[/color]"
+	var bb := "[b][color=#f472b6]SUBSYSTEM STATUS[/color][/b]\n\n"
+	var b_status: String = bridge.get("status", "UNKNOWN")
+	bb += "• [color=#38bdf8]Python bridge:[/color] [color=%s]%s[/color] (%s)\n" % [_status_color(b_status), b_status, bridge.get("endpoint", "")]
+	var g_status: String = gemini.get("status", "UNKNOWN")
+	bb += "• [color=#38bdf8]Gemini:[/color] [color=%s]%s[/color] (%s)\n" % [_status_color(g_status), g_status, gemini.get("model", "")]
+	if not str(gemini.get("last_error", "")).is_empty():
+		bb += "  [color=#f87171]%s[/color]\n" % gemini.get("last_error", "")
+	var s_status: String = stt.get("status", "UNKNOWN")
+	bb += "• [color=#38bdf8]Speech-to-text:[/color] [color=%s]%s[/color]\n  [color=#94a3b8]%s[/color]\n" % [_status_color(s_status), s_status, stt.get("detail", "")]
+	var t_status: String = tts.get("status", "UNKNOWN")
+	bb += "• [color=#38bdf8]Text-to-speech:[/color] [color=%s]%s[/color] (%s)\n  [color=#94a3b8]%s[/color]\n" % [_status_color(t_status), t_status, tts.get("engine", ""), tts.get("detail", "")]
+	var u_status: String = godot.get("status", "UNKNOWN")
+	bb += "• [color=#38bdf8]Godot frontend:[/color] [color=%s]%s[/color]\n" % [_status_color(u_status), u_status]
+	bb += "• [color=#38bdf8]Skills:[/color]\n"
+	for skill_name in skills:
+		var sk: String = str(skills[skill_name])
+		bb += "  • %s: [color=%s]%s[/color]\n" % [skill_name, _status_color(sk), sk]
 	module_content.text = bb
 
 func _render_tools_view(data: Dictionary) -> void:
@@ -561,7 +581,8 @@ func _render_tools_view(data: Dictionary) -> void:
 		else:
 			bb += "\n"
 
-	bb += "[color=#38bdf8]Permission Model:[/color] Strict runtime gating via brain/permission.py."
+	var allowed: Array = data.get("allowed_skills", [])
+	bb += "[color=#38bdf8]Allowed by brain/permission.py:[/color] %s" % ", ".join(allowed)
 	module_content.text = bb
 
 func _render_settings_view(data: Dictionary) -> void:
@@ -608,8 +629,8 @@ func _on_http_completed(_result: int, response_code: int, _headers: PackedString
 
 	status = parsed.get("status", "ready")
 	emotion = parsed.get("emotion", "NEUTRAL")
-	trust_level_str = parsed.get("trust", "MEDIUM")
-	trust_score = int(parsed.get("trust_score", 100))
+	trust_level_str = parsed.get("trust", "LOW")
+	trust_score = int(parsed.get("trust_score", 0))
 	active_user = parsed.get("user", "Guest")
 
 	var reply = parsed.get("reply", "")

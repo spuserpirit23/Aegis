@@ -516,28 +516,40 @@ git clone <repository-url>
 cd aegis
 ```
 
-Create a virtual environment:
+On Windows, run the installer. It creates `.venv` with Python 3.11 and installs the dependencies into it:
 
-```bash
-python -m venv .venv
+```bat
+install.bat
 ```
 
-Activate it on Windows:
+Add your Gemini key to a `.env` file in the project root (without it, Aegis runs in fallback mode):
 
-```powershell
-.venv\Scripts\activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
+```text
+GEMINI_API_KEY=your-key-here
 ```
 
 Run Aegis:
 
+```bat
+run_ui.bat   :: Python bridge + Godot UI
+run.bat      :: voice / command-line mode, no UI
+```
+
+Optional: the on-device emotion classifier (`AEGIS_EMOTION_PROVIDER=local`) needs torch and transformers, which are several GB. Install them with `install.bat --local`.
+
+Manual setup (any OS):
+
 ```bash
-python main.py
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt   # .venv/bin/python on macOS/Linux
+.venv/Scripts/python main.py          # UI mode
+.venv/Scripts/python main.py --cli    # CLI mode
+```
+
+If your local `memory.json` holds users created by mistake (for example from an old name-extraction bug), repair it. A timestamped backup is written first:
+
+```bash
+.venv/Scripts/python -m brain.memory --drop <user-key> [<user-key> ...] [--dry-run]
 ```
 
 > ⚠️ Aegis is experimental software. APIs, architecture, and project structure may change frequently.

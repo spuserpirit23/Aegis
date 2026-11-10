@@ -14,3 +14,15 @@ __pycache__/
 
 # Local memory
 memory.json
+
+# Local memory (user data) and repair backups
+memory.json.tmp
+memory.backup-*.json
+
+# Test / tool caches
+.pytest_cache/
+
+# Godot editor cache and generated output
+godot_ui/.godot/
+godot_ui/screenshot.png
+godot_ui/screenshot.png.import
