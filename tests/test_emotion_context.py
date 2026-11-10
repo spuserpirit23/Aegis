@@ -132,10 +132,12 @@ def test_planner_low_trust_label_suppresses_warmth(planner, trust):
         assert ctx.label == engine_label
 
 
+# Hardcoded display claims (expressiveness, voice_pitch_modulation, persona,
+# status) were removed; "provider" reports the real emotion provider.
 BRIDGE_KEYS = {
-    "emotion", "intensity", "last_user_input", "expressiveness", "voice_pitch_modulation",
-    "persona", "valence", "valence_score", "arousal", "dominance", "confidence",
-    "secondary", "source", "user_emotion", "user_valence", "status", "context",
+    "emotion", "intensity", "last_user_input", "valence", "valence_score", "arousal",
+    "dominance", "confidence", "secondary", "source", "user_emotion", "user_valence",
+    "context", "provider",
 }
 
 

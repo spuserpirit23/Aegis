@@ -47,7 +47,7 @@ def test_bridge_exposes_structured_emotion_state():
         planner.respond("thanks, that worked great")
         payload = AegisBridge(planner).emotion_state()
 
-        assert payload["status"] == "ONLINE"
+        assert payload["provider"]  # real provider name, not a hardcoded status
         assert payload["emotion"] in {"HAPPY", "NEUTRAL", "CONCERNED"}
         assert 0 <= payload["intensity"] <= 1
         assert payload["valence"] in {"POSITIVE", "NEGATIVE", "NEUTRAL"}

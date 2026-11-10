@@ -698,6 +698,15 @@ class EmotionEngine:
         return any(abs(after.emotions[name] - score) > self.change_threshold
                    for name, score in before.emotions.items())
 
+    def reset(self, entities: Iterable[str] | None = None, *, clear_events: bool = True) -> None:
+        """Forget state and history for ``entities`` (all when None)."""
+        targets = list(self._states.keys() | self._history.keys()) if entities is None else list(entities)
+        for entity in targets:
+            self._states.pop(entity, None)
+            self._history.pop(entity, None)
+        if clear_events:
+            self._events.clear()
+
     def entities(self) -> list[str]:
         """Entities with recorded state, in first-seen order."""
         return list(self._states)

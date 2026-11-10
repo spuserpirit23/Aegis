@@ -1,7 +1,7 @@
 """
 Unit tests for brain/trust.py and brain/emotion.py.
 
-Run: python3 test_trust_emotion.py
+Run: python -m pytest tests/test_trust_emotion.py
 
 These are pure-function tests — no Gemini calls, no real memory.json,
 no network. Fast enough to run before every demo rehearsal. If any of
@@ -12,7 +12,7 @@ score is a wrong premise for the whole reply.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from brain.trust import compute_trust_score, trust_level
 from brain.emotion import compute_emotion
