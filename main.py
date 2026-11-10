@@ -51,17 +51,28 @@ def ui_main():
     from aegis_bridge import create_server
 
     project_dir = Path(__file__).resolve().parent
-    server = create_server(build_planner())
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        server = create_server(build_planner())
+    except OSError as exc:
+        print(f"Could not start the Aegis bridge on 127.0.0.1:8765 ({exc}). "
+              "Is another Aegis instance already running?")
+        sys.exit(1)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
     print("Aegis bridge online at http://127.0.0.1:8765")
 
     godot_exe = _find_godot()
     if godot_exe is None:
-        print("Godot was not found. Open godot_ui/project.godot manually.")
+        print("Godot was not found. Open godot_ui/project.godot manually. "
+              "Press Ctrl+C to stop the bridge.")
         try:
-            server.serve_forever()
+            while server_thread.is_alive():
+                server_thread.join(timeout=0.5)
         except KeyboardInterrupt:
             pass
+        finally:
+            server.shutdown()
+            server.server_close()
         return
 
     try:

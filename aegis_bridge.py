@@ -3,9 +3,11 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from brain.emotion_context import ResponseEmotionContext
+from brain.permission import allowed_skills
 from brain.planner import Planner, TOOLS
-from brain.trust import compute_trust_score, trust_level
-from voice.tts import speak
+from brain.trust import trust_breakdown
+from voice.tts import speak, tts_status
 from voice.stt import listen, microphone_status
 
 
@@ -15,13 +17,21 @@ class AegisBridge:
         self.host = host
         self.port = port
         self.lock = threading.Lock()
+        # Serializes whole turns (planner call + speech) so overlapping
+        # requests queue instead of interleaving state or talking over
+        # each other. The planner also holds its own lock per turn.
+        self._turn_lock = threading.Lock()
+        self._inflight = 0
         self.reply = "Aegis is ready."
         self.status = "ready"
 
-        # Analytics and runtime telemetry
+        # Analytics and runtime telemetry (all measured, nothing asserted)
         self.start_time = time.time()
         self.total_requests = 0
+        self.failed_requests = 0
+        self.last_error = ""
         self.last_latency_ms = 0.0
+        self.last_ui_poll = None  # time.time() of the last GET /state
 
         # Voice listening state
         self._listen_status = "idle"   # idle | listening | transcribing | done | error
@@ -29,21 +39,20 @@ class AegisBridge:
         self._listen_error = ""
 
     def _get_active_user(self):
-        if self.planner.current_user:
-            return self.planner.current_user
-        return self.planner.memory.get_user("Guest")
+        # Read-only: never creates or selects a bucket as a side effect.
+        return self.planner.current_user
 
     def state(self) -> dict:
         user = self._get_active_user()
-        score = compute_trust_score(user)
-        scaled = min(100, max(15, int((score / 7.0) * 100)))
+        trust = trust_breakdown(user)
         return {
             "reply": self.reply,
             "status": self.status,
             "emotion": getattr(self.planner, "last_emotion", "neutral").upper(),
-            "trust": getattr(self.planner, "last_trust", "medium").upper(),
-            "trust_score": scaled,
+            "trust": trust.level.upper(),
+            "trust_score": trust.percent,
             "user": user.display_name,
+            "pending_name": self.planner.pending_name,
             "last_latency_ms": round(self.last_latency_ms, 1),
             "is_listening": self._listen_status in ("listening", "transcribing"),
             "listen_status": self._listen_status,
@@ -63,43 +72,42 @@ class AegisBridge:
             user = self._get_active_user()
             all_users = self.planner.memory.known_users()
             return {
-                "status": "ONLINE",
                 "active_user": user.display_name,
                 "active_user_key": user.key,
+                "is_guest": user.is_guest,
+                "persistent": not user.is_guest,
+                "pending_name": self.planner.pending_name,
                 "known_users": all_users,
-                "facts": user.facts,
+                "facts": {k: v for k, v in user.facts.items() if not k.startswith("_")},
                 "turn_count": len(user.turns),
                 "recent_turns": user.recent()[-6:],
                 "total_users": len(all_users),
                 "storage_file": str(self.planner.memory.path),
+                "storage_exists": self.planner.memory.path.exists(),
             }
 
     def trust_state(self) -> dict:
         with self.lock:
             user = self._get_active_user()
-            score = compute_trust_score(user)
-            lvl = trust_level(user).upper()
-            turn_count = len(user.turns)
-            rel_confirmed = bool(user.facts.get("nickname") or user.facts.get("name"))
-            known_pts = 3 if rel_confirmed else 0
-            turn_pts = min(turn_count // 5, 4)
-            corrections = int(user.facts.get("_correction_count", 0))
-            penalty = -1 * corrections
-            scaled = min(100, max(15, int((score / 7.0) * 100)))
+            t = trust_breakdown(user)
             return {
                 "user": user.display_name,
-                "trust_level": lvl,
-                "score": score,
-                "scaled_score": scaled,
-                "turn_count": turn_count,
-                "relationship_confirmed": rel_confirmed,
+                "trust_level": t.level.upper(),
+                "score": t.score,
+                "scaled_score": t.percent,
+                "turn_count": t.turn_count,
+                "is_guest": t.is_guest,
+                # Self-declared and confirmed in conversation; not verified.
+                "relationship_confirmed": t.identity_confirmed,
+                "identity_basis": ("guest (unidentified)" if t.is_guest
+                                   else "self-declared, confirmed in conversation"),
                 "points_breakdown": {
-                    "known_relationship": known_pts,
-                    "interaction_history": turn_pts,
-                    "correction_penalty": penalty,
+                    "known_relationship": t.known_relationship,
+                    "interaction_history": t.interaction_history,
+                    "correction_penalty": t.correction_penalty,
                 },
-                "guardrails": "MAXIMUM ENFORCEMENT",
-                "policy": "VERIFIED NOMINAL",
+                "reason": t.reason,
+                "allowed_skills": allowed_skills(),
             }
 
     def emotion_state(self) -> dict:
@@ -110,17 +118,52 @@ class AegisBridge:
                 if turn.get("role") == "user":
                     last_text = turn.get("content", "")
                     break
-            current_emotion = getattr(self.planner, "last_emotion", "neutral").upper()
-            valence = "POSITIVE" if current_emotion == "HAPPY" else ("NEGATIVE" if current_emotion in ("CONCERNED", "ANGRY", "SAD") else "NEUTRAL")
+            ctx = getattr(self.planner, "emotion_context", None) or ResponseEmotionContext.baseline(
+                getattr(self.planner, "last_emotion", "neutral"))
+            aegis, observed = ctx.aegis, ctx.user
+            valence_score = round(aegis.valence, 3)
+            valence = "POSITIVE" if valence_score > 0.15 else ("NEGATIVE" if valence_score < -0.15 else "NEUTRAL")
             return {
-                "emotion": current_emotion,
-                "intensity": 0.9,
+                "emotion": aegis.tendency.upper(),
+                "intensity": round(aegis.intensity, 3),
                 "last_user_input": last_text,
-                "expressiveness": "CALIBRATED",
-                "voice_pitch_modulation": "DYNAMIC ACTIVE",
-                "persona": "Aegis Cybernetic Companion",
                 "valence": valence,
-                "status": "ONLINE",
+                "valence_score": valence_score,
+                "arousal": round(aegis.arousal, 3),
+                "dominance": round(aegis.dominance, 3),
+                "confidence": round(aegis.confidence, 3),
+                "secondary": {k: round(v, 3) for k, v in aegis.secondary.items()},
+                "source": aegis.source,
+                # This turn's evidence (unchanged meaning from before the typed context).
+                "user_emotion": observed.turn_emotion if observed else None,
+                "user_valence": (round(observed.turn_valence, 3)
+                                 if observed and observed.turn_valence is not None else None),
+                "context": ctx.to_dict(),
+                "provider": getattr(self.planner.emotion_engine, "provider_name", None),
+            }
+
+    def emotion_debug_state(self) -> dict:
+        """Return bounded state history and event names for UI/debug tooling."""
+        with self.lock:
+            user = self._get_active_user()
+            entity = f"user:{user.key}"
+            engine = self.planner.emotion_engine
+
+            def serialise(value):
+                if hasattr(value, "to_dict"):
+                    return value.to_dict()
+                if isinstance(value, dict):
+                    return {key: serialise(item) for key, item in value.items()}
+                if isinstance(value, list):
+                    return [serialise(item) for item in value]
+                return value
+
+            return {
+                "entity": entity,
+                "user_history": [state.to_dict() for state in engine.history(entity)],
+                "aegis_history": [state.to_dict() for state in engine.history("aegis")],
+                "events": [serialise(event) for event in engine.events()],
+                "bus_events": [serialise(event) for event in self.planner.event_bus.events()],
             }
 
     def analytics_state(self) -> dict:
@@ -135,44 +178,57 @@ class AegisBridge:
                 "uptime_seconds": uptime_sec,
                 "uptime_formatted": f"{hrs:02d}:{mins:02d}:{secs:02d}",
                 "total_requests": self.total_requests,
+                "failed_requests": self.failed_requests,
+                "last_error": self.last_error,
+                "in_flight": self._inflight,
                 "last_latency_ms": round(self.last_latency_ms, 1),
                 "total_turns": total_turns,
                 "total_facts_stored": total_facts,
                 "fallback_mode": self.planner.uses_fallback,
-                "model": getattr(self.planner, "MODEL", "gemini-3.6-flash"),
-                "status": "HEALTHY",
-                "memory_footprint": "NOMINAL",
+                "model": self.planner.model,
             }
 
     def integrations_state(self) -> dict:
         with self.lock:
             mic_info = microphone_status()
+            ui_age = None if self.last_ui_poll is None else round(time.time() - self.last_ui_poll, 1)
+            if self.planner.uses_fallback:
+                gemini_status = "NOT CONFIGURED"
+            elif self.last_error and self.failed_requests:
+                gemini_status = "ERROR"
+            elif self.total_requests:
+                gemini_status = "OK"
+            else:
+                gemini_status = "CONFIGURED (untested)"
+            tts = tts_status()
             return {
                 "python_bridge": {
-                    "status": "ONLINE",
+                    "status": "ONLINE",  # true by construction: it answered
                     "endpoint": f"http://{self.host}:{self.port}",
                     "active_threads": threading.active_count(),
                 },
                 "gemini_api": {
-                    "status": "FALLBACK (No Key)" if self.planner.uses_fallback else "ONLINE",
-                    "model": getattr(self.planner, "MODEL", "gemini-3.6-flash"),
+                    "status": gemini_status,
+                    "model": self.planner.model,
+                    "last_error": self.last_error,
                 },
                 "speech_stt": {
-                    "status": "ONLINE" if "ready" in mic_info.lower() else "STANDBY",
+                    "status": "READY" if mic_info.startswith("microphone ready") else "UNAVAILABLE",
                     "detail": mic_info,
                 },
                 "speech_tts": {
-                    "status": "ONLINE",
+                    "status": tts["status"],
                     "engine": "pyttsx3 SAPI5",
-                    "mode": "Offline Local Speech",
+                    "detail": tts["detail"],
                 },
                 "godot_frontend": {
-                    "status": "CONNECTED",
-                    "polling_interval": "0.35s",
+                    "status": ("NOT SEEN" if ui_age is None
+                               else "CONNECTED" if ui_age < 5 else "STALE"),
+                    "last_poll_seconds_ago": ui_age,
                 },
                 "skills": {
-                    "weather": "ONLINE",
-                    "memory": "ONLINE",
+                    name: ("ENABLED" if name in allowed_skills() else "BLOCKED BY PERMISSION")
+                    for name in self.planner.skills
                 },
             }
 
@@ -190,8 +246,8 @@ class AegisBridge:
                     "required": params.get("required", []),
                 })
             return {
-                "status": "ONLINE",
                 "registered_skills": list(self.planner.skills.keys()),
+                "allowed_skills": allowed_skills(),
                 "tools": tools_list,
             }
 
@@ -201,7 +257,7 @@ class AegisBridge:
             return {
                 "active_user": user.display_name,
                 "bridge_url": f"http://{self.host}:{self.port}",
-                "model": getattr(self.planner, "MODEL", "gemini-3.6-flash"),
+                "model": self.planner.model,
                 "poll_interval_s": 0.35,
                 "theme": "Neon Cyber Violet",
                 "tts_enabled": True,
@@ -218,23 +274,46 @@ class AegisBridge:
 
     def respond(self, text: str) -> None:
         with self.lock:
+            self._inflight += 1
             self.status = "thinking"
             self.total_requests += 1
-        t0 = time.monotonic()
         try:
-            reply = self.planner.respond(text)
-            lat = (time.monotonic() - t0) * 1000.0
+            with self._turn_lock:
+                with self.lock:
+                    self.status = "thinking"
+                t0 = time.monotonic()
+                try:
+                    reply = self.planner.respond(text)
+                except Exception as error:
+                    with self.lock:
+                        self.failed_requests += 1
+                        self.last_error = f"{type(error).__name__}: {error}"
+                        self.reply = f"I hit an error: {error}"
+                    return
+                lat = (time.monotonic() - t0) * 1000.0
+                with self.lock:
+                    self.reply = reply
+                    self.status = "speaking"
+                    self.last_latency_ms = lat
+                    self.last_error = ""
+                speak(reply)
+        finally:
             with self.lock:
-                self.reply = reply
-                self.status = "speaking"
-                self.last_latency_ms = lat
-            speak(reply)
+                self._inflight -= 1
+                self.status = "thinking" if self._inflight else "ready"
+
+    def reset(self) -> None:
+        """Clear all conversation state: planner turns/interaction chain/
+        pending identity/emotion, plus the bridge's reply and voice state."""
+        with self._turn_lock:
+            self.planner.reset_conversation()
             with self.lock:
+                self.reply = "Aegis conversation reset."
                 self.status = "ready"
-        except Exception as error:
-            with self.lock:
-                self.reply = f"I hit an error: {error}"
-                self.status = "ready"
+                self.last_error = ""
+                self._listen_status = "idle"
+                self._listen_text = ""
+                self._listen_error = ""
 
     def start_listening(self) -> bool:
         """Start voice capture in a background thread. Returns False if already listening."""
@@ -320,7 +399,9 @@ class _Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/state":
             with self.bridge.lock:
-                self._send_json(self.bridge.state())
+                self.bridge.last_ui_poll = time.time()
+                payload = self.bridge.state()
+            self._send_json(payload)
         elif path == "/listen_status":
             self._send_json(self.bridge.listen_state())
         elif path == "/memory":
@@ -329,6 +410,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(self.bridge.trust_state())
         elif path == "/emotion":
             self._send_json(self.bridge.emotion_state())
+        elif path in ("/emotion/debug", "/emotion/history"):
+            self._send_json(self.bridge.emotion_debug_state())
         elif path == "/analytics":
             self._send_json(self.bridge.analytics_state())
         elif path == "/integrations":
@@ -405,18 +488,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "invalid JSON"}, 400)
             return
         new_user = payload.get("user")
-        if new_user and isinstance(new_user, str):
-            self.bridge.planner._set_user(new_user.strip())
+        if new_user and isinstance(new_user, str) and new_user.strip():
+            # Explicitly choosing an identity in settings counts as confirmation.
+            self.bridge.planner.set_user(new_user.strip())
         self._send_json({"success": True, "settings": self.bridge.settings_state()})
 
     def _handle_reset(self) -> None:
-        with self.bridge.lock:
-            user = self.bridge._get_active_user()
-            user._bucket["turns"] = []
-            self.bridge.planner.memory.save()
-            self.bridge.reply = "Aegis conversation reset."
-            self.bridge.status = "ready"
-        self._send_json({"success": True, "message": "Conversation history reset."})
+        self.bridge.reset()
+        self._send_json({"success": True, "message": "Conversation state reset."})
 
     def log_message(self, format: str, *args) -> None:
         return

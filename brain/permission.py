@@ -11,6 +11,10 @@ class Permission:
 _ALLOWED_SKILLS = {"get_weather", "remember_fact"}
 
 
+def allowed_skills() -> list[str]:
+    return sorted(_ALLOWED_SKILLS)
+
+
 def check_permission(skill_name: str) -> Permission:
     if skill_name in _ALLOWED_SKILLS:
         return Permission(True, "Skill is allowed.")

@@ -1,0 +1,43 @@
+# Emotion engine tuning. Values shown are the built-in defaults, so deleting
+# this file (or any key) changes nothing. Invalid values are logged and the
+# default is used instead; startup never fails because of this file.
+#
+# Environment variables override the matching keys here:
+#   AEGIS_EMOTION_PROVIDER, AEGIS_EMOTION_LOCAL_MODEL, AEGIS_EMOTION_CLOUD_MODEL
+# AEGIS_EMOTION_CONFIG points at a different file.
+
+# rule | local | cloud | auto  (see readme: "Emotion engine")
+provider: rule
+local_model: j-hartmann/emotion-english-distilroberta-base
+cloud_model: gemini-3.6-flash
+
+engine:
+  # 0..1. How much existing state outweighs a new observation when blending.
+  # Higher = steadier mood, lower = reacts faster to each message.
+  persistence: 0.72
+  # Whether emotions fade over time between messages.
+  decay: true
+  # Seconds for valence/arousal/confidence to drift halfway back to neutral.
+  dimension_half_life_seconds: 900
+  # States kept per entity for /emotion/debug.
+  history_limit: 100
+  # Events kept by engine.events().
+  event_limit: 500
+  # 0..1. Decay smaller than this (in any emotion score or valence) is not
+  # recorded in history or announced as emotion.decayed.
+  change_threshold: 0.03
+
+# How AEGIS responds to the user's emotion (regulation, not mirroring).
+regulation:
+  # Baseline and per-unit-of-distress strength of AEGIS's "concerned" tendency.
+  concern_base: 0.30
+  concern_gain: 0.45
+  # Calm level in neutral/positive turns, and while the user is distressed.
+  calm_base: 0.54
+  calm_under_stress: 0.54
+
+# Per-emotion decay overrides in seconds (time to fade to half strength).
+# Unlisted emotions keep their built-in half-life (mostly 900-2400s).
+half_lives: {}
+#  frustrated: 1200
+#  surprised: 30

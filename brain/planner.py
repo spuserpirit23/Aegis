@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -10,13 +11,16 @@ from skills.weather import get_weather, TOOL_SCHEMA as WEATHER_SCHEMA
 from brain.mind import Mind
 from brain.trust import trust_level
 from brain.emotion import compute_emotion
-from brain.memory import extract_name
+from brain.emotion_engine import legacy_label
+from brain.emotion_context import ResponseEmotionContext
+from brain.emotion_providers import build_emotion_engine
+from brain.event_bus import EventBus
+from brain.memory import GUEST_KEY, extract_name, parse_confirmation
 from brain.permission import check_permission
+from generation import GenerationRequest
 from language.engine import LanguageEngine
 
 MODEL = "gemini-3.6-flash"
-
-_GUEST_KEY = "guest"
 
 _TOOL_USE_INSTRUCTION = (
     "Use the weather tool when asked about weather. When the user "
@@ -56,7 +60,17 @@ REMEMBER_SCHEMA = {
 
 TOOLS = [WEATHER_SCHEMA, REMEMBER_SCHEMA]
 
+# Stored in the user bucket's runtime ``state`` (never in ``facts``).
 _INTERACTION_KEY = "_last_interaction_id"
+
+# Facts that define who someone is go through the confirmation flow, never
+# through free-text "my X is Y" capture or an unconfirmed tool call.
+_IDENTITY_FACT_KEYS = ("name", "nickname")
+
+_FALLBACK_REPLY = (
+    "Gemini is not configured right now, so I can only provide a "
+    "basic fallback response. Set GEMINI_API_KEY to enable full AI replies."
+)
 
 _EXPLICIT_FACT_PATTERNS = (
     re.compile(r"\bmy\s+([a-z][a-z0-9 _-]{1,30})\s+is\s+(.+)$", re.IGNORECASE),
@@ -88,118 +102,245 @@ class PlannerFallbackError(RuntimeError):
 
 class Planner:
     """
-    NOTE on identity: self.memory is now the multi-user Memory store
-    (memory.py), not a single user's data. self.current_user is a
-    UserMemory view for whoever we currently believe we're talking
-    to — resolved by self-declared name only (extract_name() heuristic,
-    or the model's own remember_fact call). This is NOT verified
-    identity — no voice or face recognition. Anyone can claim to be
-    anyone. That's a known, deliberate limitation for this phase, not
-    an oversight — voice/face verification is roadmap, post-hardware.
+    NOTE on identity: self.memory is the multi-user Memory store
+    (memory.py). self.current_user is a UserMemory view for whoever we
+    currently believe we're talking to. A name is only adopted after an
+    explicit self-introduction ("my name is X", "call me X", or an
+    utterance that is nothing but "I'm X") AND a "yes" when Aegis asks
+    to confirm it. Until then the speaker is the shared, non-persistent
+    guest. This is still NOT verified identity — no voice or face
+    recognition; anyone can claim to be anyone. Voice/face verification
+    is roadmap, post-hardware.
+
+    Concurrency: one turn at a time. respond(), reset_conversation() and
+    set_user() hold self._lock, so overlapping bridge requests are
+    serialized instead of interleaving user/emotion state.
     """
 
     def __init__(self, memory):
         load_env_file()
         api_key = os.environ.get("GEMINI_API_KEY")
         self.memory = memory  # multi-user Memory
-        self.current_user = None  # UserMemory, set once identified
+        self._lock = threading.RLock()
+        self.model = MODEL
+        # Always a valid view; starts as the shared, non-persistent guest.
+        self.current_user = memory.get_user(GUEST_KEY)
         self._asked_name_this_session = False
+        self.pending_name: str | None= None   # awaiting the speaker's "yes"
+        self._identity_note: str | None = None  # per-turn [IDENTITY] guidance
         self.uses_fallback = not api_key
         self.client = None
         self.language_engine = None
         self.skills = {}
-        self.last_trust = "medium"
+        self.last_trust = trust_level(self.current_user)
         self.last_emotion = "neutral"
+        # Structured, entity-aware emotion state. Perception of the user stays
+        # separate from AEGIS's own regulated state; the engine never replies.
+        self.event_bus = EventBus()
+        if api_key:
+            self.client = genai.Client(api_key=api_key)
+        # Provider comes from AEGIS_EMOTION_PROVIDER (default: rule-based).
+        self.emotion_engine = build_emotion_engine(event_bus=self.event_bus, cloud_client=self.client)
+        self.last_observation = None
+        self.last_emotion_state = None
+        # Typed per-turn context for prompts and the UI (see brain/emotion_context.py).
+        self.emotion_context = ResponseEmotionContext.baseline()
 
         if not api_key:
             return
 
-        self.client = genai.Client(api_key=api_key)
-        self.language_engine = LanguageEngine(gemini_client=self)
+        self.language_engine = LanguageEngine(cloud_provider=self)
         self.skills = {
             "get_weather": get_weather,
             "remember_fact": self._remember_fact,
         }
 
     def _remember_fact(self, key: str, value: str) -> dict:
-        if key.lower() in ("name", "nickname") and self.current_user is None:
-            self._set_user(value)
-        if self.current_user is not None:
-            self.current_user.remember_fact(key, value)
-            return {"ok": True, "saved": {key: value}}
-        return {"ok": False, "error": "no current user resolved yet"}
+        key = str(key).strip()
+        value = str(value).strip()
+        if key.lower() in _IDENTITY_FACT_KEYS and self.current_user.is_guest:
+            # A model-inferred name is only a candidate, same as a typed one.
+            self._propose_name(value)
+            return {"ok": False, "pending_confirmation": True,
+                    "message": f"Ask the user to confirm their name is {value} before it is saved."}
+        if self.current_user.is_guest:
+            return {"ok": False, "error": "guest speakers cannot save persistent facts; "
+                                          "confirm the user's name first"}
+        if key.startswith("_"):
+            return {"ok": False, "error": "reserved key"}
+        self.current_user.remember_fact(key, value)
+        return {"ok": True, "saved": {key: value}}
+
+    def _propose_name(self, name: str) -> None:
+        self.pending_name = name
+        self._identity_note = (
+            f"The speaker may have introduced themselves as \"{name}\". Before "
+            f"treating them as {name}, ask them to confirm in a short, natural way "
+            f"(e.g. \"Just to check, should I remember you as {name}?\"). Do not "
+            f"assume it's true yet."
+        )
 
     def _set_user(self, display_name: str):
         self.current_user = self.memory.get_user(display_name)
+        self.pending_name = None
         self._asked_name_this_session = False
+        self.last_emotion_state = None
+        self.emotion_context = ResponseEmotionContext.baseline()
+        self.last_trust = trust_level(self.current_user)
+
+    def set_user(self, display_name: str) -> None:
+        """Explicit identity selection (e.g. from the settings panel)."""
+        with self._lock:
+            self._set_user(display_name)
 
     def _resolve_speaker(self, user_text: str):
-        """Self-declared identity only — see class docstring. Falls
-        back to a shared 'guest' bucket (always low trust, by design)
-        until a name is captured."""
-        name = extract_name(user_text)
-        if name and (
-            self.current_user is None
-            or self.current_user.key == _GUEST_KEY
-            or self.current_user.key != name.strip().lower()
-        ):
-            self._set_user(name)
-        elif self.current_user is None:
-            self.current_user = self.memory.get_user(_GUEST_KEY)
+        """Self-declared, *confirmed* identity only — see class docstring."""
+        self._identity_note = None
+        candidate = extract_name(user_text)
+
+        if self.pending_name is not None:
+            pending = self.pending_name
+            answer = parse_confirmation(user_text)
+            same = candidate is None or candidate.strip().lower() == pending.strip().lower()
+            if answer is True and same:
+                self._set_user(pending)
+                self._identity_note = (
+                    f"The speaker just confirmed they are {self.current_user.display_name}."
+                )
+                return
+            if candidate and not same:
+                self._propose_name(candidate)
+                return
+            self.pending_name = None
+            if answer is False:
+                self._identity_note = (
+                    "The speaker said that name was wrong. Don't use it; you may "
+                    "ask what you should call them."
+                )
+            return
+
+        if candidate and candidate.strip().lower() != self.current_user.key:
+            self._propose_name(candidate)
 
     def _save_explicit_facts(self, user_text: str) -> None:
+        if self.current_user.is_guest:
+            return
         for pattern in _EXPLICIT_FACT_PATTERNS:
             match = pattern.search(user_text.strip().rstrip(".!?"))
             if not match:
                 continue
             key = re.sub(r"\s+", "_", match.group(1).strip().lower())
             value = match.group(2).strip()
-            if key and value and self.current_user is not None:
+            if key and value and key not in _IDENTITY_FACT_KEYS:
                 self.current_user.remember_fact(key, value)
             return
 
+    def reset_conversation(self) -> None:
+        """Clear everything that belongs to the current conversation: turns,
+        the model's interaction chain, pending identity, and emotional state.
+        Durable facts and the current (confirmed) identity are kept."""
+        with self._lock:
+            user = self.current_user
+            user.clear_conversation()
+            self.pending_name = None
+            self._identity_note = None
+            self._asked_name_this_session = False
+            self.emotion_engine.reset([f"user:{user.key}", "aegis"])
+            self.event_bus.events(clear=True)
+            self.last_observation = None
+            self.last_emotion_state = None
+            self.last_emotion = "neutral"
+            self.emotion_context = ResponseEmotionContext.baseline()
+            self.last_trust = trust_level(user)
+
+    def _observe_emotion(self, user_text: str) -> None:
+        """Update user perception and AEGIS's regulated state for this turn."""
+        trust = trust_level(self.current_user)
+        entity = f"user:{self.current_user.key}"
+        context = {
+            "trust": trust,
+            "recent_turns": self.current_user.recent()[-4:],
+            "user_key": self.current_user.key,
+        }
+        observation = self.emotion_engine.process(user_text, entity=entity, context=context)
+        state = self.emotion_engine.regulate(observation)
+        label = legacy_label(state)
+        # Preserve the existing trust rule: don't perform warmth toward
+        # someone who hasn't earned it yet.
+        if trust == "low" and label == "happy":
+            label = "neutral"
+        self.last_observation = observation
+        self.last_emotion_state = state
+        self.last_emotion = label
+        self.emotion_context = ResponseEmotionContext.from_turn(
+            observation=observation,
+            user_state=self.emotion_engine.state(entity),
+            aegis_state=state,
+            label=label,
+            trust=trust,
+        )
+
     def _build_system_instruction(self) -> str:
         trust = trust_level(self.current_user)
-        emotion = compute_emotion(self.current_user, trust)
+        if self.last_emotion_state is None:
+            self.last_emotion = compute_emotion(self.current_user, trust)
         self.last_trust = trust
-        self.last_emotion = emotion
+        emotion = self.last_emotion
 
         system = mind.as_prompt(trust=trust, emotion=emotion)
         system += "\n\n[TOOL USE]\n" + _TOOL_USE_INSTRUCTION
 
-        is_unidentified = self.current_user.key == _GUEST_KEY
-        if is_unidentified and not self._asked_name_this_session:
+        if self._identity_note:
+            system += "\n\n[IDENTITY]\n" + self._identity_note
+        elif self.current_user.is_guest and not self._asked_name_this_session:
             system += "\n\n[IDENTITY]\n" + _ASK_NAME_INSTRUCTION
             self._asked_name_this_session = True
 
         if self.current_user.facts_as_text():
             system += "\n\n" + self.current_user.facts_as_text()
+        # Give the response model calibrated state, not a bare sentiment
+        # label. This preserves uncertainty and the distinction between the
+        # user's evidence and AEGIS's regulated response tendency.
+        affective = self.emotion_context.to_prompt()
+        if affective:
+            system += "\n\n" + affective
         return system
 
-    def generate(self, prompt: str, lang: str, context: dict) -> str:
-        return self._respond_direct(prompt, context["system_prompt"], prepared=True)
+    def generate(self, request: GenerationRequest) -> str:
+        context = request.context or {}
+        return self._respond_direct(
+            request.text,
+            context.get("system_prompt"),
+            prepared=True,
+        )
 
     def respond(self, user_text: str) -> str:
+        with self._lock:
+            self._begin_turn(user_text)
+            if self.uses_fallback:
+                return self._fallback_reply()
+
+            system = self._build_system_instruction()
+            result = self.language_engine.reply(
+                text=user_text,
+                intent=None,
+                context={"system_prompt": system},
+            )
+            self.current_user.add_turn("assistant", result.text)
+            return result.text
+
+    def _begin_turn(self, user_text: str) -> None:
         self._resolve_speaker(user_text)
         self.current_user.add_turn("user", user_text)
         self._save_explicit_facts(user_text)
+        self._observe_emotion(user_text)
 
-        if self.uses_fallback:
-            fallback = (
-                "Gemini is not configured right now, so I can only provide a "
-                "basic fallback response. Set GEMINI_API_KEY to enable full AI replies."
-            )
-            self.current_user.add_turn("assistant", fallback)
-            return fallback
-
-        system = self._build_system_instruction()
-        result = self.language_engine.reply(
-            text=user_text,
-            intent=None,
-            context={"system_prompt": system},
-        )
-        self.current_user.add_turn("assistant", result.text)
-        return result.text
+    def _fallback_reply(self) -> str:
+        reply = _FALLBACK_REPLY
+        if self.pending_name:
+            reply = f"Just to check, should I remember you as {self.pending_name}? " + reply
+        self.current_user.add_turn("assistant", reply)
+        return reply
 
     def _respond_direct(
         self,
@@ -207,22 +348,15 @@ class Planner:
         system: Optional[str] = None,
         prepared: bool = False,
     ) -> str:
-        if not prepared:
-            self._resolve_speaker(user_text)
-            self.current_user.add_turn("user", user_text)
-            self._save_explicit_facts(user_text)
+        with self._lock:
+            if not prepared:
+                self._begin_turn(user_text)
+            if self.uses_fallback:
+                return self._fallback_reply()
+            return self._call_model(user_text, system or self._build_system_instruction())
 
-        if self.uses_fallback:
-            fallback = (
-                "Gemini is not configured right now, so I can only provide a "
-                "basic fallback response. Set GEMINI_API_KEY to enable full AI replies."
-            )
-            self.current_user.add_turn("assistant", fallback)
-            return fallback
-
-        system = system or self._build_system_instruction()
-
-        prev_id = self.current_user.facts.get(_INTERACTION_KEY)
+    def _call_model(self, user_text: str, system: str) -> str:
+        prev_id = self.current_user.get_state(_INTERACTION_KEY)
         kwargs = dict(
             model=MODEL,
             input=user_text,
@@ -293,5 +427,5 @@ class Planner:
         print(f"[timing] total: {time.monotonic() - t0:.2f}s across {call_count} API call(s)")
 
         final_text = interaction.output_text
-        self.current_user.remember_fact(_INTERACTION_KEY, interaction.id)
+        self.current_user.set_state(_INTERACTION_KEY, interaction.id)
         return final_text

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from transformers import pipeline
-
-
+# Transformers is optional at import time: the compatibility label hook must
+# stay usable (and tests must stay fast) when torch/transformers are absent.
 _emotion_classifier = None
 
 def _get_classifier():
@@ -11,6 +10,8 @@ def _get_classifier():
         return None
     if _emotion_classifier is None:
         try:
+            from transformers import pipeline
+
             _emotion_classifier = pipeline(
                 "text-classification",
                 model="j-hartmann/emotion-english-distilroberta-base",
@@ -103,10 +104,10 @@ def _map_emotion(
 
 def compute_emotion(memory, trust: str) -> str:
     """
-    Existing framework interface.
+    Legacy single-label compatibility hook.
 
-    Returns a simple emotion string so the existing
-    framework remains compatible.
+    New code should use brain.emotion_engine.EmotionEngine for structured,
+    entity-aware state. This function remains for existing callers and tests.
     """
 
     text = _last_user_text(memory)

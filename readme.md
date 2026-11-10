@@ -203,6 +203,112 @@ The system should be able to replace the underlying language model without losin
 * Emotional state
 * Relationships
 * Goals
+### Generation backends
+
+Response generation is provider-neutral and follows a deterministic fallback chain:
+
+```text
+ScriptedBackend -> LocalModelBackend -> CloudLLMBackend -> external provider
+```
+
+Each backend receives a `GenerationRequest` and returns a `GenerationResult`. A backend
+can return `handled=False` to let the router continue. Deployments can provide only the
+backends they support, including scripted-only or offline scripted-plus-local setups.
+
+The old `LanguageEngine(gemini_client=client)` constructor is replaced by
+`LanguageEngine(generation=router)` for full control, or
+`LanguageEngine(cloud_provider=provider)` for the default scripted-to-cloud setup.
+Existing `language.backend.GeminiBackend` imports remain available as a compatibility
+adapter, but provider-specific code now lives under `providers/`.
+
+### Emotion engine
+
+`brain.emotion_engine` is the model-independent core for emotion-like state. It
+keeps evidence about the speaker separate from AEGIS's own regulated state,
+tracks separate entities, blends repeated observations, and decays emotion
+scores and dimensions toward a neutral baseline. The included rule provider is
+dependency-free; semantic or model-backed providers implement the same
+`EmotionProvider.analyze()` contract. `LocalSemanticEmotionProvider` and
+`CloudSemanticEmotionProvider` accept an injected model adapter that returns a
+structured mapping (or JSON text) with emotion scores, valence, arousal, and
+confidence/uncertainty. `FallbackEmotionProvider([local, cloud])` makes the
+selection order explicit and falls back to rules if every semantic provider is
+unavailable. This keeps credentials and model SDKs at the application edge.
+
+Each turn records a user observation separately from AEGIS's regulated state.
+The planner sends trust and recent-turn context to the provider, fuses new
+evidence with per-entity state, publishes `emotion.*` events to the shared
+`EventBus`, and supplies calibrated affective context to response generation.
+The bridge exposes `GET /emotion` for the current structured state and
+`GET /emotion/debug` (also `/emotion/history`) for bounded per-entity history
+and event diagnostics.
+
+Tuning lives in `mind/emotion.yaml`, which explains each setting and ships
+with the built-in defaults. It covers how steady the mood is (`persistence`),
+decay speed (overall and per emotion), history and event limits, and how
+strongly AEGIS responds with concern or calm. Point `AEGIS_EMOTION_CONFIG` at
+another file to swap profiles. Invalid or misspelled keys are logged and the
+default is used.
+
+Choose the emotion provider with `provider` in that file, or override it with
+`AEGIS_EMOTION_PROVIDER` (in the environment or `.env`):
+
+| Value | Behaviour |
+|---|---|
+| `rule` (default) | Keyword rules; no model calls, no dependencies. |
+| `local` | On-device `transformers` classifier (`AEGIS_EMOTION_LOCAL_MODEL`, default `j-hartmann/emotion-english-distilroberta-base`). |
+| `cloud` | Gemini structured analysis (`AEGIS_EMOTION_CLOUD_MODEL`). Needs `GEMINI_API_KEY`; sends user text to Gemini and adds one model call per turn. |
+| `auto` | Local, then cloud, then rules. |
+
+Any unknown value or unavailable provider falls back to `rule`, so startup
+never fails. If a semantic provider fails mid-conversation, that turn uses
+rules and emits `emotion.provider_fallback`. The factory lives in
+`brain/emotion_providers.py`.
+
+Each turn the planner builds one frozen `ResponseEmotionContext`
+(`brain/emotion_context.py`) at `planner.emotion_context`. It has a `user`
+part (blended per-user state plus this turn's evidence and confidence) and an
+`aegis` part (regulated tendency), along with `trust` and the policy `label`.
+The `[AFFECTIVE CONTEXT]` prompt block (`to_prompt()`) and `GET /emotion` (raw
+form under `context`) both read from it.
+
+#### Emotion events
+
+The engine emits these events to `engine.on(...)` subscribers, to
+`engine.events()` (last 500, configurable with `event_limit`) and to the shared
+`EventBus`. Every payload also carries `entity` and `timestamp` (engine clock).
+States and observations in payloads are snapshots, so changing them doesn't
+change engine state. The authoritative contract is `EMOTION_EVENTS` in
+`brain/emotion_engine.py`, and `tests/test_emotion_events.py` checks it.
+
+| Event | Extra fields | When |
+|---|---|---|
+| `emotion.detected` | `observation`, `source` | A provider returned evidence for a message. |
+| `emotion.changed` | `previous`, `current`, `intensity`, `cause`, `state` | The primary emotion changed; `cause` is `observation` or `decay`. |
+| `emotion.state_changed` | `state` | After every update, even if the primary emotion is unchanged. |
+| `emotion.decayed` | `state` | Decay moved a score or valence by more than `change_threshold` (default 0.03), or an emotion faded out. Lazy: fires when state is read, not on a timer. |
+| `emotion.provider_fallback` | `provider`, `fallback`, `error` | A provider failed and another (or the rules) answered instead. |
+
+#### Emotion debugger
+
+All commands read `mind/emotion.yaml`; `--provider` and `--config` override it.
+
+```powershell
+# One message: observation, user state, AEGIS tendency, events (--json for machines)
+python -m brain.emotion_debug analyze "I've been trying this for hours and nothing works!" --regulate
+
+# Interactive session. Time is frozen; ":wait 600" shows ten minutes of decay.
+# :state  :history  :events  :entity NAME  :provider NAME  :config  :reset  :help  :quit
+python -m brain.emotion_debug repl
+
+# Inspect the running app through the bridge (/emotion and /emotion/debug)
+python -m brain.emotion_debug live [--url http://127.0.0.1:8765]
+
+# Effective tuning and which file it came from
+python -m brain.emotion_debug config
+```
+
+`python -m brain.emotion_engine "text"` still works as a shortcut for `analyze`.
 
 ---
 
@@ -410,28 +516,40 @@ git clone <repository-url>
 cd aegis
 ```
 
-Create a virtual environment:
+On Windows, run the installer. It creates `.venv` with Python 3.11 and installs the dependencies into it:
 
-```bash
-python -m venv .venv
+```bat
+install.bat
 ```
 
-Activate it on Windows:
+Add your Gemini key to a `.env` file in the project root (without it, Aegis runs in fallback mode):
 
-```powershell
-.venv\Scripts\activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
+```text
+GEMINI_API_KEY=your-key-here
 ```
 
 Run Aegis:
 
+```bat
+run_ui.bat   :: Python bridge + Godot UI
+run.bat      :: voice / command-line mode, no UI
+```
+
+Optional: the on-device emotion classifier (`AEGIS_EMOTION_PROVIDER=local`) needs torch and transformers, which are several GB. Install them with `install.bat --local`.
+
+Manual setup (any OS):
+
 ```bash
-python main.py
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt   # .venv/bin/python on macOS/Linux
+.venv/Scripts/python main.py          # UI mode
+.venv/Scripts/python main.py --cli    # CLI mode
+```
+
+If your local `memory.json` holds users created by mistake (for example from an old name-extraction bug), repair it. A timestamped backup is written first:
+
+```bash
+.venv/Scripts/python -m brain.memory --drop <user-key> [<user-key> ...] [--dry-run]
 ```
 
 > ⚠️ Aegis is experimental software. APIs, architecture, and project structure may change frequently.
