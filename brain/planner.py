@@ -16,7 +16,10 @@ from brain.emotion_context import ResponseEmotionContext
 from brain.emotion_providers import build_emotion_engine
 from brain.event_bus import EventBus
 from brain.memory import GUEST_KEY, extract_name, parse_confirmation
-from brain.permission import check_permission
+from brain.permission import can, check_permission
+from brain.audit import actor_of, audit
+from brain.identity import (AuthStatus, IdentityVerificationRequired, VerificationResult,
+                            VerifierRegistry, default_registry)
 from generation import GenerationRequest
 from language.engine import LanguageEngine
 
@@ -109,20 +112,24 @@ class Planner:
     utterance that is nothing but "I'm X") AND a "yes" when Aegis asks
     to confirm it. Until then the speaker is the shared, non-persistent
     guest. This is still NOT verified identity — no voice or face
-    recognition; anyone can claim to be anyone. Voice/face verification
-    is roadmap, post-hardware.
+    recognition; anyone can claim to be anyone. A confirmed claim gives
+    auth_status "claimed", which trust caps at MEDIUM. A profile with an
+    enrolled credential (brain/identity.py) cannot be entered by claiming
+    its name at all: verify_identity() is the only way in, and it yields
+    "verified", the only status that can reach HIGH trust.
 
     Concurrency: one turn at a time. respond(), reset_conversation() and
     set_user() hold self._lock, so overlapping bridge requests are
     serialized instead of interleaving user/emotion state.
     """
 
-    def __init__(self, memory):
+    def __init__(self, memory, verifiers: VerifierRegistry | None = None):
         load_env_file()
         api_key = os.environ.get("GEMINI_API_KEY")
         self.memory = memory  # multi-user Memory
         self._lock = threading.RLock()
         self.model = MODEL
+        self.verifiers = verifiers or default_registry()
         # Always a valid view; starts as the shared, non-persistent guest.
         self.current_user = memory.get_user(GUEST_KEY)
         self._asked_name_this_session = False
@@ -163,15 +170,22 @@ class Planner:
             self._propose_name(value)
             return {"ok": False, "pending_confirmation": True,
                     "message": f"Ask the user to confirm their name is {value} before it is saved."}
-        if self.current_user.is_guest:
+        if not can(self.current_user.auth_status, "persist_facts"):
+            audit("permission.denied", outcome="denied", actor=actor_of(self.current_user),
+                  action="persist_fact", key=key)
             return {"ok": False, "error": "guest speakers cannot save persistent facts; "
                                           "confirm the user's name first"}
         if key.startswith("_"):
             return {"ok": False, "error": "reserved key"}
+        if key.lower() == "name":
+            # The profile's name mirrors its identity record; renaming who someone
+            # *is* goes through the identity flow, not a model tool call.
+            return {"ok": False, "error": "the profile name can't be changed by the model"}
         self.current_user.remember_fact(key, value)
         return {"ok": True, "saved": {key: value}}
 
     def _propose_name(self, name: str) -> None:
+        audit("identity.proposed", actor=actor_of(self.current_user), claimed_name=name)
         self.pending_name = name
         self._identity_note = (
             f"The speaker may have introduced themselves as \"{name}\". Before "
@@ -180,18 +194,66 @@ class Planner:
             f"assume it's true yet."
         )
 
-    def _set_user(self, display_name: str):
-        self.current_user = self.memory.get_user(display_name)
+    def _set_user(self, display_name: str, auth_status=AuthStatus.CLAIMED,
+                  verified_by: str | None = None, via: str = "conversation"):
+        previous = actor_of(self.current_user)
+        self.current_user = self.memory.get_user(display_name, auth_status, verified_by)
+        audit("identity.switched", actor=actor_of(self.current_user), previous=previous, via=via)
         self.pending_name = None
         self._asked_name_this_session = False
         self.last_emotion_state = None
         self.emotion_context = ResponseEmotionContext.baseline()
         self.last_trust = trust_level(self.current_user)
 
-    def set_user(self, display_name: str) -> None:
-        """Explicit identity selection (e.g. from the settings panel)."""
+    def protected_methods(self, display_name: str) -> list[str]:
+        """Verification methods enrolled on an existing profile ([] = unprotected)."""
+        return self.verifiers.enrolled_methods(self.memory.identity_record(display_name))
+
+    def set_user(self, display_name: str, via: str = "settings") -> None:
+        """Explicit identity selection (e.g. from the settings panel).
+
+        Yields a *claimed* identity. Raises IdentityVerificationRequired for a
+        profile with an enrolled credential; use verify_identity() instead."""
         with self._lock:
-            self._set_user(display_name)
+            methods = self.protected_methods(display_name)
+            if methods and not self._is_verified_as(display_name):
+                audit("identity.switch_blocked", outcome="denied",
+                      actor=actor_of(self.current_user), target=display_name,
+                      via=via, required=methods)
+                raise IdentityVerificationRequired(display_name, methods)
+            if self._is_verified_as(display_name):
+                return  # already verified as this profile; don't downgrade
+            self._set_user(display_name, via=via)
+
+    def _is_verified_as(self, display_name: str) -> bool:
+        user = self.current_user
+        return (user.auth_status is AuthStatus.VERIFIED
+                and user.key == display_name.strip().lower())
+
+    def verify_identity(self, display_name: str, method: str, secret: str) -> VerificationResult:
+        """Prove control of a profile's credential; on success the session
+        becomes that user with auth_status "verified"."""
+        with self._lock:
+            record = self.memory.identity_record(display_name)
+            if record is None:
+                result = VerificationResult(False, method, "unknown profile")
+            else:
+                result = self.verifiers.verify(record["user_id"], record, method, str(secret))
+            audit("identity.verify", outcome="ok" if result.ok else "denied",
+                  actor=actor_of(self.current_user), target=display_name,
+                  target_user_id=(record or {}).get("user_id"), method=method,
+                  reason=result.reason or None, retry_after_s=result.retry_after_s)
+            if result.ok:
+                self._set_user(display_name, AuthStatus.VERIFIED, verified_by=method,
+                               via=f"verify:{method}")
+            return result
+
+    def sign_out(self) -> None:
+        """Drop back to the shared guest identity (conversation state is kept
+        with the profile it belongs to)."""
+        with self._lock:
+            if not self.current_user.is_guest:
+                self._set_user(GUEST_KEY, via="sign_out")
 
     def _resolve_speaker(self, user_text: str):
         """Self-declared, *confirmed* identity only — see class docstring."""
@@ -203,6 +265,20 @@ class Planner:
             answer = parse_confirmation(user_text)
             same = candidate is None or candidate.strip().lower() == pending.strip().lower()
             if answer is True and same:
+                methods = self.protected_methods(pending)
+                if methods and not self._is_verified_as(pending):
+                    # A protected profile can't be entered by saying its name.
+                    self.pending_name = None
+                    audit("identity.claim_blocked", outcome="denied",
+                          actor=actor_of(self.current_user), claimed_name=pending,
+                          required=methods)
+                    self._identity_note = (
+                        f"The profile \"{pending}\" is protected. Do not treat the speaker "
+                        f"as {pending} or reveal anything you know about {pending}. Tell "
+                        f"them briefly that they need to verify in the Aegis app to use "
+                        f"that profile."
+                    )
+                    return
                 self._set_user(pending)
                 self._identity_note = (
                     f"The speaker just confirmed they are {self.current_user.display_name}."
@@ -213,6 +289,8 @@ class Planner:
                 return
             self.pending_name = None
             if answer is False:
+                audit("identity.rejected", actor=actor_of(self.current_user),
+                      claimed_name=pending)
                 self._identity_note = (
                     "The speaker said that name was wrong. Don't use it; you may "
                     "ask what you should call them."
@@ -223,7 +301,7 @@ class Planner:
             self._propose_name(candidate)
 
     def _save_explicit_facts(self, user_text: str) -> None:
-        if self.current_user.is_guest:
+        if not can(self.current_user.auth_status, "persist_facts"):
             return
         for pattern in _EXPLICIT_FACT_PATTERNS:
             match = pattern.search(user_text.strip().rstrip(".!?"))
@@ -241,6 +319,7 @@ class Planner:
         Durable facts and the current (confirmed) identity are kept."""
         with self._lock:
             user = self.current_user
+            audit("conversation.reset", actor=actor_of(user))
             user.clear_conversation()
             self.pending_name = None
             self._identity_note = None
@@ -391,8 +470,11 @@ class Planner:
                 # for the model to collect and replay a confirmation
                 # across turns. That's a real gap, not silently
                 # papered over — see note below.
-                perm = check_permission(step.name)
+                perm = check_permission(step.name, self.current_user.auth_status)
                 if not perm.allowed:
+                    audit("permission.denied", outcome="denied",
+                          actor=actor_of(self.current_user), skill=step.name,
+                          reason=perm.reason)
                     result = {
                         "ok": False,
                         "error": perm.reason,

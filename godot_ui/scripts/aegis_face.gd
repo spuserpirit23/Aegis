@@ -19,9 +19,29 @@ var _poll_elapsed := 0.0
 var _input: LineEdit
 var _reply_label: Label
 var _status_label: Label
+var _bridge_token := ""
+
+
+func _load_bridge_token() -> void:
+	_bridge_token = OS.get_environment("AEGIS_BRIDGE_TOKEN").strip_edges()
+	if _bridge_token.is_empty():
+		var token_path := ProjectSettings.globalize_path("res://").path_join("../.aegis/bridge_token")
+		if FileAccess.file_exists(token_path):
+			var f := FileAccess.open(token_path, FileAccess.READ)
+			if f:
+				_bridge_token = f.get_as_text().strip_edges()
+
+func _bridge_headers(json_body: bool = false) -> PackedStringArray:
+	var headers := PackedStringArray()
+	if not _bridge_token.is_empty():
+		headers.append("Authorization: Bearer " + _bridge_token)
+	if json_body:
+		headers.append("Content-Type: application/json")
+	return headers
 
 
 func _ready() -> void:
+	_load_bridge_token()
 	add_child(_http)
 	_http.request_completed.connect(_on_http_completed)
 	_build_interface()
@@ -38,7 +58,7 @@ func _process(delta: float) -> void:
 		_poll_state()
 
 func _poll_state() -> void:
-	_http.request(BRIDGE_URL + "/state", [], HTTPClient.METHOD_GET)
+	_http.request(BRIDGE_URL + "/state", _bridge_headers(), HTTPClient.METHOD_GET)
 
 func _send_message() -> void:
 	var text := _input.text.strip_edges()
@@ -47,12 +67,16 @@ func _send_message() -> void:
 	_input.clear()
 	_status_label.text = "Aegis is thinking..."
 	var body := JSON.stringify({"text": text})
-	_http.request(BRIDGE_URL + "/respond", ["Content-Type: application/json"], HTTPClient.METHOD_POST, body)
+	_http.request(BRIDGE_URL + "/respond", _bridge_headers(true), HTTPClient.METHOD_POST, body)
 
 func _on_input_submitted(_text: String) -> void:
 	_send_message()
 
 func _on_http_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if response_code == 401:
+		_load_bridge_token()
+		_status_label.text = "Bridge auth failed (token)"
+		return
 	if response_code != 200:
 		_status_label.text = "Start Aegis with run_ui.bat"
 		return

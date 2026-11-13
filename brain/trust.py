@@ -9,13 +9,17 @@ Levels: "low" | "medium" | "high"
 
 Every signal is exposed through :func:`trust_breakdown`, which is what the
 UI shows, so the panel can never disagree with the level actually used.
-Identity is self-declared and confirmed in conversation, not verified.
+Identity strength gates the ceiling: a guest is always LOW, a self-declared
+("claimed") identity is capped at MEDIUM however long the history, and only
+a verified identity (brain/identity.py) can reach HIGH. Saying a name must
+never be enough to earn the highest trust.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from brain.identity import AuthStatus, coerce_status
 from brain.memory import GUEST_KEY
 
 
@@ -35,6 +39,7 @@ MAX_SCORE = _KNOWN_RELATIONSHIP_POINTS + _INTERACTION_POINTS_CAP
 @dataclass(frozen=True)
 class TrustBreakdown:
     is_guest: bool
+    auth_status: str
     identity_confirmed: bool
     turn_count: int
     corrections: int
@@ -45,6 +50,7 @@ class TrustBreakdown:
     level: str
     percent: int          # score mapped onto 0..100 of MAX_SCORE; no floor
     reason: str
+    capped: bool = False  # level held below what the score alone would give
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -52,6 +58,15 @@ class TrustBreakdown:
 
 def _is_guest(memory) -> bool:
     return getattr(memory, "key", None) == GUEST_KEY
+
+
+def _auth_status(memory) -> AuthStatus:
+    if _is_guest(memory):
+        return AuthStatus.GUEST
+    # Objects without an explicit status (older callers, test doubles) are
+    # treated as self-declared: never guest-shared, never above MEDIUM.
+    status = coerce_status(getattr(memory, "auth_status", AuthStatus.CLAIMED))
+    return AuthStatus.CLAIMED if status is AuthStatus.GUEST else status
 
 
 def _corrections(memory) -> int:
@@ -83,21 +98,34 @@ def trust_breakdown(memory) -> TrustBreakdown:
     penalty = _CORRECTION_PENALTY * corrections
     score = known + interaction + penalty
 
+    status = _auth_status(memory)
+    score_level = _level_for(score)
+    capped = False
     if guest:
         # The guest bucket is shared by every unidentified speaker, so its
         # turn count says nothing about any one person: always low.
         level = "low"
+        capped = score_level != "low"
         reason = "Unidentified guest: trust is fixed at LOW until a name is confirmed."
+    elif status is not AuthStatus.VERIFIED and score_level == "high":
+        level = "medium"
+        capped = True
+        reason = (f"Score {score} would be HIGH, but the identity is self-declared, not "
+                  f"verified: capped at MEDIUM.")
     else:
-        level = _level_for(score)
+        level = score_level
         reason = (f"Score {score} ({'<=' if level != 'high' else '>'} "
                   f"{_LOW_MAX if level == 'low' else _MEDIUM_MAX}) -> {level.upper()}.")
 
     percent = 0 if MAX_SCORE <= 0 else round(100 * max(0, min(score, MAX_SCORE)) / MAX_SCORE)
-    if guest:
+    # Never let the gauge look higher than the level actually applied.
+    if level == "low":
         percent = min(percent, round(100 * _LOW_MAX / MAX_SCORE))
+    elif level == "medium":
+        percent = min(percent, round(100 * _MEDIUM_MAX / MAX_SCORE))
     return TrustBreakdown(
         is_guest=guest,
+        auth_status=status.value,
         identity_confirmed=identity,
         turn_count=turn_count,
         corrections=corrections,
@@ -108,6 +136,7 @@ def trust_breakdown(memory) -> TrustBreakdown:
         level=level,
         percent=percent,
         reason=reason,
+        capped=capped,
     )
 
 

@@ -26,3 +26,7 @@ memory.backup-*.json
 godot_ui/.godot/
 godot_ui/screenshot.png
 godot_ui/screenshot.png.import
+
+# Per-launch bridge token and security audit log
+.aegis/
+logs/

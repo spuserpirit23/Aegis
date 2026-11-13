@@ -310,6 +310,42 @@ python -m brain.emotion_debug config
 
 `python -m brain.emotion_engine "text"` still works as a shortcut for `analyze`.
 
+### Identity & security
+
+Every profile has an opaque internal `user_id` (`usr_…`), a cosmetic
+`display_name`, and, for the current session only, an `auth_status`:
+
+| Status | How you get it | Trust ceiling | Can save facts |
+|---|---|---|---|
+| `guest` | default; shared, never written to disk | LOW | no |
+| `claimed` | say a name and confirm it, or pick it in settings | MEDIUM | yes |
+| `verified` | prove a credential enrolled on the profile | HIGH | yes |
+
+Saying a name never earns HIGH trust. Once a profile has a credential, nobody
+can enter it by claiming its name; they have to verify. Verifiers implement
+`brain.identity.IdentityVerifier`. A local PIN ships now; voice and face can
+plug in later.
+
+```bash
+# With Aegis stopped (the running app owns memory.json):
+python -m brain.identity enroll-pin --user Spirit
+python -m brain.identity show --user Spirit
+python -m brain.identity remove-credentials --user Spirit
+```
+
+The bridge listens only on loopback. Every request needs
+`Authorization: Bearer <token>`. The token is minted per launch, passed to
+Godot as `AEGIS_BRIDGE_TOKEN`, and written to `.aegis/bridge_token`. The
+bridge sends no wildcard CORS, rejects browser `Origin`s unless they are listed
+in `AEGIS_BRIDGE_ALLOWED_ORIGINS`, and rejects non-loopback `Host` headers
+(DNS rebinding). Identity endpoints: `GET /identity`,
+`POST /identity/verify {"user","method","secret"}`, `POST /identity/sign_out`.
+
+Security events (auth failures, identity claims, switches and verifications,
+settings changes, resets, permission denials) are appended to
+`logs/audit.jsonl`, or the path in `AEGIS_AUDIT_LOG`. Secrets are redacted and
+message content is never logged. `GET /audit` returns recent entries.
+
 ---
 
 # 🔌 Plugins

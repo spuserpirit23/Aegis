@@ -5,6 +5,8 @@ import shutil
 import time
 from pathlib import Path
 
+from brain.identity import AuthStatus, Identity, coerce_status, new_user_id
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 _LEGACY_BUCKET = "_legacy"
@@ -90,25 +92,69 @@ def _user_key(name: str) -> str:
     return name.strip().lower()
 
 
+def _new_identity_record(display_name: str) -> dict:
+    """Persisted identity for a profile. ``user_id`` is minted once and never
+    derived from the name; ``credentials`` belongs to brain/identity.py
+    verifiers and is never shown to the model or the UI."""
+    return {
+        "user_id": new_user_id(),
+        "display_name": display_name,
+        "created_at": time.time(),
+        "credentials": {},
+    }
+
+
 def _new_bucket(display_name: str | None) -> dict:
     facts = {"name": display_name} if display_name else {}
-    return {"turns": [], "facts": facts, "state": {}}
+    bucket = {"turns": [], "facts": facts, "state": {}}
+    if display_name:
+        bucket["identity"] = _new_identity_record(display_name)
+    return bucket
 
 
 class UserMemory:
     """Same interface as the old single-user Memory (turns, facts,
     add_turn, remember_fact, facts_as_text) so trust.py, emotion.py,
     and planner.py don't need to know multi-user storage exists
-    underneath — they just get handed the current user's view."""
+    underneath — they just get handed the current user's view.
 
-    def __init__(self, store: "Memory", key: str, display_name: str):
+    ``key`` is the storage lookup key (normalized name), ``user_id`` the
+    stable internal ID, ``display_name`` what to call them, and
+    ``auth_status`` how this session's speaker came to be this user. Auth
+    status lives on the view, not on disk, so it never outlives the session.
+    """
+
+    def __init__(self, store: "Memory", key: str, display_name: str,
+                 auth_status: AuthStatus | str = AuthStatus.CLAIMED,
+                 verified_by: str | None = None, verified_at: float | None = None):
         self.store = store
         self.key = key
         self.display_name = display_name
+        self.auth_status = AuthStatus.GUEST if key == GUEST_KEY else coerce_status(auth_status)
+        if self.auth_status is AuthStatus.GUEST and key != GUEST_KEY:
+            self.auth_status = AuthStatus.CLAIMED  # a named profile is never "guest"
+        self.verified_by = verified_by if self.auth_status is AuthStatus.VERIFIED else None
+        self.verified_at = verified_at if self.auth_status is AuthStatus.VERIFIED else None
 
     @property
     def is_guest(self) -> bool:
         return self.key == GUEST_KEY
+
+    @property
+    def user_id(self) -> str:
+        if self.is_guest:
+            return GUEST_KEY
+        return self._bucket.get("identity", {}).get("user_id", f"legacy:{self.key}")
+
+    @property
+    def identity(self) -> Identity:
+        return Identity(
+            user_id=self.user_id,
+            display_name=self.display_name,
+            auth_status=self.auth_status,
+            verified_by=self.verified_by,
+            verified_at=self.verified_at,
+        )
 
     @property
     def _bucket(self) -> dict:
@@ -222,10 +268,18 @@ class Memory:
             # several speakers' turns and "facts". Never reload it.
             del users[GUEST_KEY]
             changed = True
-        for bucket in users.values():
+        for key, bucket in users.items():
             bucket.setdefault("turns", [])
             facts = bucket.setdefault("facts", {})
             state = bucket.setdefault("state", {})
+            identity = bucket.get("identity")
+            if not isinstance(identity, dict) or not identity.get("user_id"):
+                # Pre-identity schema: mint a stable internal ID once.
+                bucket["identity"] = _new_identity_record(str(facts.get("name") or key))
+                changed = True
+            else:
+                identity.setdefault("display_name", str(facts.get("name") or key))
+                identity.setdefault("credentials", {})
             for key in [k for k in facts if k.startswith("_")]:
                 value = facts.pop(key)
                 if key in INTERNAL_STATE_KEYS:
@@ -246,14 +300,23 @@ class Memory:
         tmp.write_text(json.dumps(persisted, indent=2), encoding="utf-8")
         tmp.replace(self.path)
 
-    def _view(self, key: str, fallback_name: str) -> UserMemory:
+    def _view(self, key: str, fallback_name: str, auth_status=AuthStatus.CLAIMED,
+              verified_by: str | None = None) -> UserMemory:
         if key == GUEST_KEY:
-            return UserMemory(self, key, "Guest")
-        name = self.data["users"][key]["facts"].get("name", fallback_name)
-        return UserMemory(self, key, name)
+            return UserMemory(self, key, "Guest", AuthStatus.GUEST)
+        bucket = self.data["users"][key]
+        name = (bucket.get("identity", {}).get("display_name")
+                or bucket["facts"].get("name", fallback_name))
+        status = coerce_status(auth_status)
+        return UserMemory(self, key, name, status, verified_by,
+                          time.time() if status is AuthStatus.VERIFIED else None)
 
-    def get_user(self, display_name: str) -> UserMemory:
-        """Fetch (or create) the bucket for a given confirmed name."""
+    def get_user(self, display_name: str, auth_status=AuthStatus.CLAIMED,
+                 verified_by: str | None = None) -> UserMemory:
+        """Fetch (or create) the bucket for a given name.
+
+        ``auth_status`` describes how the caller established this identity;
+        callers must only pass VERIFIED after a verifier succeeded."""
         key = _user_key(display_name)
         if key not in self.data["users"]:
             is_guest = key == GUEST_KEY
@@ -261,7 +324,7 @@ class Memory:
             if not is_guest:
                 self.save()
         self.data["last_user"] = key
-        return self._view(key, display_name.strip())
+        return self._view(key, display_name.strip(), auth_status, verified_by)
 
     def peek_user(self, display_name: str) -> UserMemory | None:
         """Return an existing user's view without creating or selecting it."""
@@ -269,6 +332,14 @@ class Memory:
         if key not in self.data["users"]:
             return None
         return self._view(key, display_name.strip())
+
+    def identity_record(self, display_name: str) -> dict | None:
+        """The persisted identity dict for an existing profile (mutable; call
+        save() after changing it). None for unknown names and the guest."""
+        key = _user_key(display_name)
+        if key == GUEST_KEY or key not in self.data["users"]:
+            return None
+        return self.data["users"][key].get("identity")
 
     def known_users(self) -> list[str]:
         """Display names of everyone Aegis has a bucket for (excluding guest)."""

@@ -37,13 +37,16 @@ def test_guest_stays_low_however_many_turns(memory):
     assert trust_level(guest) == "low"
 
 
-def test_named_users_keep_existing_behaviour(memory):
+def test_named_users_score_but_claimed_identity_caps_at_medium(memory):
     sam = memory.get_user("Sam")
     assert compute_trust_score(sam) == 3
     assert trust_level(sam) == "medium"
     for _ in range(30):
         sam.add_turn("user", "hi")
-    assert trust_level(sam) == "high"
+    assert compute_trust_score(sam) == 7
+    assert trust_level(sam) == "medium"  # self-declared: never HIGH
+    verified = memory.get_user("Sam", auth_status="verified", verified_by="pin")
+    assert trust_level(verified) == "high"
 
 
 def test_planner_guest_gets_low_trust_and_no_warmth(memory):

@@ -317,8 +317,17 @@ def cmd_repl(args, out: TextIO) -> int:
 
 # --------------------------------------------------------------------- live
 
+def _bridge_token() -> str | None:
+    from .bridge_auth import TOKEN_ENV, read_token_file
+    return os.environ.get(TOKEN_ENV, "").strip() or read_token_file()
+
+
 def fetch_json(url: str, timeout: float = 3.0) -> dict:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
+    request = urllib.request.Request(url)
+    token = _bridge_token()
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

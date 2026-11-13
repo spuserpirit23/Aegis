@@ -1,3 +1,4 @@
+import os
 import sys
 import shutil
 import subprocess
@@ -76,9 +77,12 @@ def ui_main():
         return
 
     try:
+        # The UI authenticates to the bridge with this per-launch token.
+        env = {**os.environ, "AEGIS_BRIDGE_TOKEN": server.bridge.token}
         subprocess.run(
             [godot_exe, "--audio-driver", "Dummy", "--path", str(project_dir / "godot_ui")],
             check=False,
+            env=env,
         )
     finally:
         server.shutdown()

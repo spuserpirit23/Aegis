@@ -32,6 +32,9 @@ var _http_module: HTTPRequest
 var _pending_voice_request := ""
 var _listen_poll_timer := 0.0
 
+# Bridge authentication (per-launch bearer token; see brain/bridge_auth.py)
+var _bridge_token := ""
+
 # Live speech typewriter state
 var _is_typewriting := false
 var _typewriter_text := ""
@@ -79,7 +82,28 @@ var _typewriter_pending_send := false
 	"SETTINGS": $LeftPanel/PluginsList/BtnSettings,
 }
 
+func _load_bridge_token() -> void:
+	# main.py passes the token via the environment; a hand-opened editor falls
+	# back to the file the bridge writes next to the project.
+	_bridge_token = OS.get_environment("AEGIS_BRIDGE_TOKEN").strip_edges()
+	if _bridge_token.is_empty():
+		var token_path := ProjectSettings.globalize_path("res://").path_join("../.aegis/bridge_token")
+		if FileAccess.file_exists(token_path):
+			var f := FileAccess.open(token_path, FileAccess.READ)
+			if f:
+				_bridge_token = f.get_as_text().strip_edges()
+
+func _bridge_headers(json_body: bool = false) -> PackedStringArray:
+	var headers := PackedStringArray()
+	if not _bridge_token.is_empty():
+		headers.append("Authorization: Bearer " + _bridge_token)
+	if json_body:
+		headers.append("Content-Type: application/json")
+	return headers
+
 func _ready() -> void:
+	_load_bridge_token()
+
 	# Main state-polling HTTP client
 	_http = HTTPRequest.new()
 	add_child(_http)
@@ -395,7 +419,7 @@ func _poll_module_endpoint(plugin_name: String) -> void:
 		_:
 			return
 
-	_http_module.request(BRIDGE_URL + ep, [], HTTPClient.METHOD_GET)
+	_http_module.request(BRIDGE_URL + ep, _bridge_headers(), HTTPClient.METHOD_GET)
 
 func _on_module_http_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code != 200:
@@ -607,9 +631,16 @@ func _render_settings_view(data: Dictionary) -> void:
 #  BRIDGE POLLING (state)
 # ═══════════════════════════════════════════════════
 func _poll_bridge() -> void:
-	_http.request(BRIDGE_URL + "/state", [], HTTPClient.METHOD_GET)
+	_http.request(BRIDGE_URL + "/state", _bridge_headers(), HTTPClient.METHOD_GET)
 
 func _on_http_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if response_code == 401:
+		# Bridge restarted with a new token, or we never had one: re-read it.
+		_load_bridge_token()
+		status_text_bottom.text = "BRIDGE AUTH FAILED (TOKEN)"
+		status_indicator_top.text = "● AUTH ERROR ●"
+		status_indicator_top.modulate = Color(0.95, 0.6, 0.2)
+		return
 	if response_code != 200:
 		status_text_bottom.text = "AEGIS IS OFFLINE (START BRIDGE)"
 		status_indicator_top.text = "● SYSTEM OFFLINE ●"
@@ -680,9 +711,9 @@ func _send_user_message() -> void:
 	var payload := JSON.stringify({"text": text})
 	if _http_voice.get_http_client_status() == HTTPClient.STATUS_DISCONNECTED:
 		_pending_voice_request = "text_respond"
-		_http_voice.request(BRIDGE_URL + "/respond", ["Content-Type: application/json"], HTTPClient.METHOD_POST, payload)
+		_http_voice.request(BRIDGE_URL + "/respond", _bridge_headers(true), HTTPClient.METHOD_POST, payload)
 	else:
-		_http.request(BRIDGE_URL + "/respond", ["Content-Type: application/json"], HTTPClient.METHOD_POST, payload)
+		_http.request(BRIDGE_URL + "/respond", _bridge_headers(true), HTTPClient.METHOD_POST, payload)
 
 # ═══════════════════════════════════════════════════
 #  VOICE INPUT (MIC BUTTON & LIVE SPEECH TYPING)
@@ -705,7 +736,7 @@ func _start_listening() -> void:
 	mic_btn.modulate = Color(0.85, 0.35, 1.0, 1.0)
 
 	_pending_voice_request = "listen_start"
-	_http_voice.request(BRIDGE_URL + "/listen", [], HTTPClient.METHOD_POST, "")
+	_http_voice.request(BRIDGE_URL + "/listen", _bridge_headers(), HTTPClient.METHOD_POST, "")
 
 func _cancel_listening() -> void:
 	is_listening = false
@@ -715,11 +746,11 @@ func _cancel_listening() -> void:
 
 	if _http_voice.get_http_client_status() == HTTPClient.STATUS_DISCONNECTED:
 		_pending_voice_request = "listen_cancel"
-		_http_voice.request(BRIDGE_URL + "/listen_cancel", [], HTTPClient.METHOD_POST, "")
+		_http_voice.request(BRIDGE_URL + "/listen_cancel", _bridge_headers(), HTTPClient.METHOD_POST, "")
 
 func _poll_listen_status() -> void:
 	_pending_voice_request = "listen_poll"
-	_http_voice.request(BRIDGE_URL + "/listen_status", [], HTTPClient.METHOD_GET)
+	_http_voice.request(BRIDGE_URL + "/listen_status", _bridge_headers(), HTTPClient.METHOD_GET)
 
 func _on_voice_http_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	var req_type := _pending_voice_request
@@ -793,7 +824,7 @@ func _finish_speech_respond(voice_text: String) -> void:
 
 	var payload := JSON.stringify({"text": voice_text})
 	_pending_voice_request = "voice_respond"
-	_http_voice.request(BRIDGE_URL + "/voice_respond", ["Content-Type: application/json"], HTTPClient.METHOD_POST, payload)
+	_http_voice.request(BRIDGE_URL + "/voice_respond", _bridge_headers(true), HTTPClient.METHOD_POST, payload)
 
 func _finish_listening_error(error_msg: String) -> void:
 	is_listening = false

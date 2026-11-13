@@ -60,12 +60,15 @@ def test_trust_score_is_capped_not_unbounded():
     assert compute_trust_score(absurd) == 7, compute_trust_score(absurd)
 
 
-def test_real_memory_shape_scores_high():
+def test_real_memory_shape_scores_high_only_when_verified():
     # Mirrors your actual memory.json: 18 turns + nickname/name known.
     mem = FakeMemory(
         turns=[user_turn("hi")] * 18,
         facts={"nickname": "Spirit", "name": "Arpan"},
     )
+    # No auth status -> treated as self-declared -> capped below HIGH.
+    assert trust_level(mem) == "medium", trust_level(mem)
+    mem.auth_status = "verified"
     assert trust_level(mem) == "high", trust_level(mem)
 
 
